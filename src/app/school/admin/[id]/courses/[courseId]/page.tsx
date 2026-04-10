@@ -1120,7 +1120,7 @@ export default function CreateCourse() {
                                         ...commonUpdates,
                                         content: activeItem.content
                                     };
-                                } else if (item.type === 'quiz' && activeItem.type === 'quiz') {
+                                } else if ((item.type === 'quiz' || item.type === 'assessment') && (activeItem.type === 'quiz' || activeItem.type === 'assessment')) {
                                     return {
                                         ...item,
                                         ...commonUpdates,

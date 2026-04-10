@@ -165,7 +165,13 @@ const QuizEditor = forwardRef<QuizEditorHandle, QuizEditorProps>(({
     const [isLoadingIntegration, setIsLoadingIntegration] = useState(false);
     const [integrationError, setIntegrationError] = useState<string | null>(null);
 
-
+    // Helper to display toast notifications
+    const displayToast = useCallback((title: string, message: string, emoji: string = "🚀") => {
+        setToastTitle(title);
+        setToastMessage(message);
+        setToastEmoji(emoji);
+        setShowToast(true);
+    }, []);
 
     // Add useEffect to automatically hide toast after 5 seconds
     useEffect(() => {
@@ -189,9 +195,9 @@ const QuizEditor = forwardRef<QuizEditorHandle, QuizEditorProps>(({
         const topicMap: Record<string, { points: number, count: number }> = {};
         
         questions.forEach(q => {
-            const topic = q.config.settings?.topic || 'Uncategorized';
-            const points = q.config.settings?.points || 0;
-            const isMcq = q.config.questionType === 'objective';
+            const topic = q?.config?.settings?.topic || 'Uncategorized';
+            const points = q?.config?.settings?.points || 0;
+            const isMcq = q?.config?.questionType === 'objective';
             
             totalPoints += points;
             if (isMcq) mcqCount++;
@@ -1189,31 +1195,34 @@ const QuizEditor = forwardRef<QuizEditorHandle, QuizEditorProps>(({
 
                 // Return the formatted question object for all questions, not just those with scorecards
                 const questionData: any = {
-                    blocks: question.content,
+                    blocks: question.content || [],
                     answer: question.config.correctAnswer || [],
-                    input_type: inputType,
-                    response_type: question.config.responseType,
+                    input_type: (inputType || 'text').toLowerCase(),
+                    response_type: (question.config.responseType || 'chat').toLowerCase(),
                     coding_languages: question.config.codingLanguages || [],
                     generation_model: null,
-                    type: questionType,
+                    type: (questionType || 'objective').toLowerCase(),
                     max_attempts: question.config.responseType === 'exam' ? 1 : null,
                     is_feedback_shown: question.config.responseType === 'exam' ? false : true,
                     scorecard_id: scorecardId,
                     context: getKnowledgeBaseContent(question.config),
-                    title: question.config.title,
-                    settings: question.config.settings,
+                    title: question.config.title || 'Question',
+                    settings: question.config.settings || {},
                 };
 
-                // Include ID only for existing questions being updated
-                if (question.id && !question.id.includes('question-')) {
-                    questionData.id = question.id;
+                // Strictly check if ID is an integer before including it, to avoid sending NaN
+                if (question.id) {
+                    const idStr = question.id.toString();
+                    if (!idStr.includes('question-') && /^\d+$/.test(idStr)) {
+                        questionData.id = parseInt(idStr);
+                    }
                 }
 
                 return questionData;
             });
 
-            // Make POST request to update the quiz
-            const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/tasks/${taskId}/quiz`, {
+            // Make POST request to update the task
+            const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/tasks/${taskId}/${taskType}`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -1222,7 +1231,7 @@ const QuizEditor = forwardRef<QuizEditorHandle, QuizEditorProps>(({
                     title: currentTitle,
                     questions: formattedQuestions,
                     scheduled_publish_at: scheduledPublishAt,
-                    status: status
+                    status: (status || 'draft').toLowerCase()
                 }),
             });
 
@@ -1288,23 +1297,31 @@ const QuizEditor = forwardRef<QuizEditorHandle, QuizEditorProps>(({
                     scorecardId = question.config.scorecardData.id
                 }
 
+                let questionId = null;
+                if (question.id) {
+                    const idStr = question.id.toString();
+                    if (!idStr.includes('question-') && /^\d+$/.test(idStr)) {
+                        questionId = parseInt(idStr);
+                    }
+                }
+
                 return {
-                    id: question.id,
-                    blocks: question.content,
+                    id: questionId,
+                    blocks: question.content || [],
                     answer: question.config.correctAnswer || [],
                     coding_languages: question.config.codingLanguages || [],
-                    type: questionType,
-                    input_type: inputType,
-                    response_type: question.config.responseType,
+                    type: (questionType || 'objective').toLowerCase(),
+                    input_type: (inputType || 'text').toLowerCase(),
+                    response_type: (question.config.responseType || 'chat').toLowerCase(),
                     scorecard_id: scorecardId,
                     context: getKnowledgeBaseContent(question.config),
-                    title: question.config.title,
-                    settings: question.config.settings,
+                    title: question.config.title || 'Question',
+                    settings: question.config.settings || {},
                 };
             });
 
-            // Make PUT request to update the quiz content, keeping the same status
-            const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/tasks/${taskId}/quiz`, {
+            // Make PUT request to update the task content, keeping the same status
+            const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/tasks/${taskId}/${taskType}`, {
                 method: 'PUT',
                 headers: {
                     'Content-Type': 'application/json',
@@ -1543,28 +1560,36 @@ const QuizEditor = forwardRef<QuizEditorHandle, QuizEditorProps>(({
             
             const editedQuestionData = await response.json();
             
-            // Apply mutations
+            // Apply mutations immutably
             const updatedQuestions = [...questions];
+            const originalQuestion = updatedQuestions[currentQuestionIndex];
+            
+            // Create a NEW object for the modified question
+            updatedQuestions[currentQuestionIndex] = {
+                ...originalQuestion,
+                content: editedQuestionData.content,
+                config: {
+                    ...originalQuestion.config,
+                    title: editedQuestionData.config.title,
+                    questionType: editedQuestionData.config.questionType,
+                    inputType: editedQuestionData.config.inputType,
+                    codingLanguages: editedQuestionData.config.codingLanguages || originalQuestion.config.codingLanguages,
+                    correctAnswer: editedQuestionData.config.correctAnswer || originalQuestion.config.correctAnswer,
+                    scorecardData: editedQuestionData.config.scorecardData || originalQuestion.config.scorecardData,
+                }
+            };
+            
             const q = updatedQuestions[currentQuestionIndex];
-            q.content = editedQuestionData.content;
-            q.config.title = editedQuestionData.config.title;
-            q.config.questionType = editedQuestionData.config.questionType;
-            q.config.inputType = editedQuestionData.config.inputType;
-            
-            if (editedQuestionData.config.codingLanguages) {
-                q.config.codingLanguages = editedQuestionData.config.codingLanguages;
-            }
-            if (editedQuestionData.config.correctAnswer) {
-                q.config.correctAnswer = editedQuestionData.config.correctAnswer;
-            }
-            if (editedQuestionData.config.scorecardData) {
-                q.config.scorecardData = editedQuestionData.config.scorecardData;
-            }
-            
             setQuestions(updatedQuestions);
+            if (onChange) {
+                onChange(updatedQuestions);
+            }
             if (onQuestionChange && !isPreviewMode) {
                 onQuestionChange(q.id);
             }
+            // Update the original data ref so discard logic knows this is the new "saved" state
+            originalQuestionsRef.current = JSON.parse(JSON.stringify(updatedQuestions));
+            
             setShowAiRefinement(false);
             setAiRefinementPrompt('');
             displayToast("AI Refinement", "Question successfully updated!");

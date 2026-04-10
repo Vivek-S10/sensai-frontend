@@ -213,7 +213,7 @@ const CourseItemDialog: React.FC<CourseItemDialogProps> = ({
 
             // Make sure to clear questions from active item when the dialog closes for draft quizzes
             if (activeItem &&
-                activeItem.type === 'quiz' &&
+                (activeItem.type === 'quiz' || activeItem.type === 'assessment') &&
                 activeItem.status === 'draft') {
 
                 console.log('Cleaning up draft quiz questions on dialog close');
@@ -229,7 +229,7 @@ const CourseItemDialog: React.FC<CourseItemDialogProps> = ({
 
                 const hasChanges = activeItem?.type === 'material'
                     ? (learningMaterialEditorRef.current?.hasChanges() || false)
-                    : activeItem?.type === 'quiz'
+                    : (activeItem?.type === 'quiz' || activeItem?.type === 'assessment')
                         ? (quizEditorRef.current?.hasChanges() || false)
                         : (assignmentEditorRef.current?.hasChanges() || false);
 
@@ -248,16 +248,14 @@ const CourseItemDialog: React.FC<CourseItemDialogProps> = ({
             setShowToast(false);
 
             // When dialog opens, ensure hasQuizQuestions is correctly initialized
-            if (activeItem &&
-                activeItem.type === 'quiz' &&
-                activeItem.status === 'published') {
-
-                // For published quizzes, initialize based on actual data
-                // Will be updated when data is loaded by the QuizEditor
-                setHasQuizQuestions(activeItem.questions && activeItem.questions.length > 0);
-            } else {
-                // For materials, always true
-                setHasQuizQuestions(true);
+            if (activeItem) {
+                if ((activeItem.type === 'quiz' || activeItem.type === 'assessment')) {
+                    // For quizzes/assessments, initialize based on actual data
+                    setHasQuizQuestions(activeItem.questions && activeItem.questions.length > 0);
+                } else {
+                    // For materials and assignments, always true for button visibility purposes
+                    setHasQuizQuestions(true);
+                }
             }
         }
     }, [isOpen, activeItem, isEditMode]);
@@ -448,7 +446,7 @@ const CourseItemDialog: React.FC<CourseItemDialogProps> = ({
         // Check if there are actual changes
         const hasChanges = activeItem.type === 'material'
             ? learningMaterialEditorRef.current?.hasChanges() || false
-            : activeItem.type === 'quiz'
+            : (activeItem.type === 'quiz' || activeItem.type === 'assessment')
                 ? quizEditorRef.current?.hasChanges() || false
                 : assignmentEditorRef.current?.hasChanges() || false;
 
@@ -472,7 +470,7 @@ const CourseItemDialog: React.FC<CourseItemDialogProps> = ({
             // Check if the editor/quiz has any content using the appropriate ref
             const hasContent = activeItem.type === 'material'
                 ? learningMaterialEditorRef.current?.hasContent() || false
-                : activeItem.type === 'quiz'
+                : (activeItem.type === 'quiz' || activeItem.type === 'assessment')
                     ? quizEditorRef.current?.hasContent() || false
                     : assignmentEditorRef.current?.hasContent() || false;
 
@@ -513,7 +511,7 @@ const CourseItemDialog: React.FC<CourseItemDialogProps> = ({
         // Check if there are actual changes
         const hasChanges = activeItem.type === 'material'
             ? learningMaterialEditorRef.current?.hasChanges() || false
-            : activeItem.type === 'quiz'
+            : (activeItem.type === 'quiz' || activeItem.type === 'assessment')
                 ? quizEditorRef.current?.hasChanges() || false
                 : assignmentEditorRef.current?.hasChanges() || false;
 
@@ -534,7 +532,7 @@ const CourseItemDialog: React.FC<CourseItemDialogProps> = ({
         // Save logic for draft: call save and then close dialog
         if (activeItem?.type === 'material') {
             learningMaterialEditorRef.current?.save();
-        } else if (activeItem?.type === 'quiz') {
+        } else if (activeItem?.type === 'quiz' || activeItem?.type === 'assessment') {
             quizEditorRef.current?.saveDraft();
         } else if (activeItem?.type === 'assignment') {
             // Validate evaluation criteria before saving draft
@@ -558,7 +556,7 @@ const CourseItemDialog: React.FC<CourseItemDialogProps> = ({
             if (activeItem?.type === 'material') {
                 // Use the ref to call cancel directly to revert any changes
                 learningMaterialEditorRef.current?.cancel();
-            } else if (activeItem?.type === 'quiz') {
+            } else if (activeItem?.type === 'quiz' || activeItem?.type === 'assessment') {
                 // Use the ref to call cancel directly to revert any changes
                 quizEditorRef.current?.cancel();
             } else if (activeItem?.type === 'assignment') {
@@ -782,7 +780,7 @@ const CourseItemDialog: React.FC<CourseItemDialogProps> = ({
         if (activeItem?.type === 'material') {
             // Use the ref to call save directly
             learningMaterialEditorRef.current?.save();
-        } else if (activeItem?.type === 'quiz') {
+        } else if (activeItem?.type === 'quiz' || activeItem?.type === 'assessment') {
             // Use the ref to call save directly
             quizEditorRef.current?.savePublished();
         } else if (activeItem?.type === 'assignment') {
@@ -855,14 +853,14 @@ const CourseItemDialog: React.FC<CourseItemDialogProps> = ({
                                     titleElement.dataset.editing = "true";
                                 }}
                                 className={`text-2xl font-light text-black dark:text-white outline-none empty:before:content-[attr(data-placeholder)] empty:before:text-gray-400 empty:before:pointer-events-none cursor-text mr-4 ${(activeItem?.status !== 'published' || isEditMode) ? 'w-full min-w-[300px]' : ''}`}
-                                data-placeholder={activeItem?.type === 'material' ? 'New learning material' : (activeItem?.type === 'quiz' ? 'New quiz' : 'New assignment')}
+                                data-placeholder={activeItem?.type === 'material' ? 'New learning material' : (activeItem?.type === 'quiz' ? 'New quiz' : (activeItem?.type === 'assessment' ? 'New assessment' : 'New assignment'))}
                             >
                                 {activeItem?.title}
                             </h2>
                         </div>
                         <div className="flex items-center space-x-3">
-                            {/* Preview Mode Toggle for Quizzes/Assignments */}
-                            {((activeItem?.type === 'quiz' && hasQuizQuestions) || activeItem?.type === 'assignment') && (
+                            {/* Preview Mode Toggle for Quizzes/Assignments/Assessments */}
+                            {!showCurriculumChat && ((activeItem?.type === 'quiz' && hasQuizQuestions) || activeItem?.type === 'assignment' || (activeItem?.type === 'assessment' && hasQuizQuestions)) && (
                                 <button
                                     onClick={togglePreviewMode}
                                     className={getButtonClasses('blue')}
@@ -883,10 +881,11 @@ const CourseItemDialog: React.FC<CourseItemDialogProps> = ({
                             )}
 
                             {/* Publish button for all item types */}
-                            {activeItem?.status === 'draft' &&
+                            {!showCurriculumChat && activeItem?.status === 'draft' &&
                                 ((activeItem?.type === 'quiz' && hasQuizQuestions) ||
                                     activeItem?.type === 'material' ||
-                                    activeItem?.type === 'assignment') && (
+                                    activeItem?.type === 'assignment' ||
+                                    (activeItem?.type === 'assessment' && hasQuizQuestions)) && (
                                     <>
                                         {/* Save Draft button */}
                                         <button
@@ -905,8 +904,8 @@ const CourseItemDialog: React.FC<CourseItemDialogProps> = ({
                                         <button
                                             onClick={() => {
                                                 checkUnsavedScorecardChangesBeforeAction(() => {
-                                                    // For quizzes, validate before showing publish confirmation
-                                                    if (activeItem?.type === 'quiz' && quizEditorRef.current) {
+                                                    // For quizzes and assessments, validate before showing publish confirmation
+                                                    if ((activeItem?.type === 'quiz' || activeItem?.type === 'assessment') && quizEditorRef.current) {
                                                         // Run validation before opening the publish confirmation
                                                         const isValid = quizEditorRef.current.validateBeforePublish();
                                                         if (!isValid) {
@@ -1244,6 +1243,7 @@ const CourseItemDialog: React.FC<CourseItemDialogProps> = ({
                                         onContinueToGenerateQuestions={(generatedQuestions) => {
                                             if (generatedQuestions && generatedQuestions.length > 0) {
                                                 activeItem.questions = generatedQuestions;
+                                                setHasQuizQuestions(true);
                                             }
                                             displayToast("Questions Generated", `Successfully mapped ${generatedQuestions.length} questions.`);
                                             setShowCurriculumChat(false);
@@ -1253,84 +1253,89 @@ const CourseItemDialog: React.FC<CourseItemDialogProps> = ({
                                     <DynamicQuizEditor
                                         ref={quizEditorRef}
                                         key={`assessment-${activeItem.id}-${isEditMode}`}
-                                    readOnly={activeItem.status === 'published' && !isEditMode}
-                                    taskId={activeItem.id}
-                                    status={activeItem.status}
-                                    showPublishConfirmation={showPublishConfirmation}
-                                    onPublishCancel={onPublishCancel}
-                                    onPublishConfirm={onPublishConfirm}
-                                    isEditMode={isEditMode}
-                                    onSaveSuccess={(updatedData) => {
-                                        // Handle save success
-                                        if (updatedData) {
-                                            // Update the activeItem with new title and questions
+                                        scheduledPublishAt={scheduledDate ? scheduledDate.toISOString() : null}
+                                        currentQuestionId={activeQuestionId || undefined}
+                                        onQuestionChange={onQuestionChange}
+                                        readOnly={activeItem.status === 'published' && !isEditMode}
+                                        taskId={activeItem.id}
+                                        status={activeItem.status}
+                                        showPublishConfirmation={showPublishConfirmation}
+                                        onPublishCancel={onPublishCancel}
+                                        onPublishConfirm={onPublishConfirm}
+                                        isEditMode={isEditMode}
+                                        isPreviewMode={previewMode}
+                                        onSaveSuccess={(updatedData) => {
+                                            // Handle save success
+                                            if (updatedData) {
+                                                // Update the activeItem with new title and questions
+                                                if (activeItem) {
+                                                    activeItem.title = updatedData.title;
+                                                    activeItem.scheduled_publish_at = updatedData.scheduled_publish_at;
+
+                                                    if (updatedData.questions) {
+                                                        activeItem.questions = updatedData.questions;
+                                                    }
+                                                }
+
+                                                // Call onSaveItem to exit edit mode
+                                                onSaveItem();
+
+                                                // Clear the history state since changes have been saved
+                                                // This prevents needing to click back twice after saving
+                                                if (window.history.state && window.history.state.dialogOpen && activeItem.status === 'published') {
+                                                    window.history.back();
+                                                }
+
+                                                // Show toast notification for save success
+                                                displayToast("Saved", `Your ${activeItem.type} has been updated`);
+                                            }
+                                        }}
+                                        onPublishSuccess={(updatedData) => {
+                                            // Handle publish success
+                                            if (updatedData) {
+                                                // Properly update the UI state first
+                                                if (activeItem && updatedData.status === 'published') {
+                                                    activeItem.status = 'published';
+                                                    activeItem.title = updatedData.title;
+                                                    activeItem.scheduled_publish_at = updatedData.scheduled_publish_at;
+
+                                                    if (updatedData.scheduled_publish_at) {
+                                                        setScheduledDate(new Date(updatedData.scheduled_publish_at));
+                                                    } else {
+                                                        setScheduledDate(null);
+                                                    }
+
+                                                    if (updatedData.questions) {
+                                                        activeItem.questions = updatedData.questions;
+                                                    }
+                                                }
+
+                                                onPublishConfirm();
+
+                                                if (window.history.state && window.history.state.dialogOpen) {
+                                                    window.history.back();
+                                                }
+
+                                                const publishMessage = updatedData.scheduled_publish_at ? `Your assessment has been scheduled for publishing` : `Your assessment has been published`;
+                                                displayToast("Published", publishMessage);
+                                            }
+
+                                            onSetShowPublishConfirmation(false);
+                                        }}
+                                        schoolId={schoolId}
+                                        onQuestionChangeWithUnsavedScorecardChanges={() => {
+                                            setShowUnsavedScorecardChangesInfo(true);
+                                        }}
+                                        taskType="assessment"
+                                        initialQuestions={activeItem?.questions || EMPTY_QUESTIONS}
+                                        onChange={(questions) => {
+                                            setHasQuizQuestions(questions.length > 0);
                                             if (activeItem) {
-                                                activeItem.title = updatedData.title;
-                                                activeItem.scheduled_publish_at = updatedData.scheduled_publish_at;
-
-                                                if (updatedData.questions) {
-                                                    activeItem.questions = updatedData.questions;
-                                                }
+                                                activeItem.questions = questions;
                                             }
-
-                                            // Call onSaveItem to exit edit mode
-                                            onSaveItem();
-
-                                            // Clear the history state since changes have been saved
-                                            // This prevents needing to click back twice after saving
-                                            if (window.history.state && window.history.state.dialogOpen && activeItem.status === 'published') {
-                                                window.history.back();
-                                            }
-
-                                            // Show toast notification for save success
-                                            displayToast("Saved", `Your ${activeItem.type} has been updated`);
-                                        }
-                                    }}
-                                    onPublishSuccess={(updatedData) => {
-                                        // Handle publish success
-                                        if (updatedData) {
-                                            // Properly update the UI state first
-                                            if (activeItem && updatedData.status === 'published') {
-                                                activeItem.status = 'published';
-                                                activeItem.title = updatedData.title;
-                                                activeItem.scheduled_publish_at = updatedData.scheduled_publish_at;
-
-                                                if (updatedData.scheduled_publish_at) {
-                                                    setScheduledDate(new Date(updatedData.scheduled_publish_at));
-                                                } else {
-                                                    setScheduledDate(null);
-                                                }
-
-                                                if (updatedData.questions) {
-                                                    activeItem.questions = updatedData.questions;
-                                                }
-                                            }
-
-                                            onPublishConfirm();
-
-                                            if (window.history.state && window.history.state.dialogOpen) {
-                                                window.history.back();
-                                            }
-
-                                            const publishMessage = updatedData.scheduled_publish_at ? `Your assessment has been scheduled for publishing` : `Your assessment has been published`;
-                                            displayToast("Published", publishMessage);
-                                        }
-
-                                        onSetShowPublishConfirmation(false);
-                                    }}
-                                    schoolId={schoolId}
-                                    onQuestionChangeWithUnsavedScorecardChanges={() => {
-                                        setShowUnsavedScorecardChangesInfo(true);
-                                    }}
-                                    taskType="assessment"
-                                    initialQuestions={activeItem?.questions || EMPTY_QUESTIONS}
-                                    onChange={(questions) => {
-                                        if (activeItem) {
-                                            activeItem.questions = questions;
-                                        }
-                                        onQuizContentChange(questions);
-                                    }}
-                                />
+                                            onQuizContentChange(questions);
+                                        }}
+                                    />
                                 )
                             ) : activeItem?.type === 'assignment' ? (
                                 <DynamicAssignmentEditor
