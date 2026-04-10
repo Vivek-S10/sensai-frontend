@@ -3,7 +3,7 @@
 import "@blocknote/core/fonts/inter.css";
 import "@blocknote/mantine/style.css";
 import { useState, useEffect, useRef, useCallback, useMemo, forwardRef, useImperativeHandle } from "react";
-import { Plus, FileText, Trash2, Check, HelpCircle, Pen, ClipboardCheck, BookOpen, Code, Sparkles, Tag } from "lucide-react";
+import { Plus, FileText, Trash2, Check, HelpCircle, Pen, ClipboardCheck, BookOpen, Code, Sparkles, Tag, Bot } from "lucide-react";
 
 // Add custom styles for dark mode
 import "./editor-styles.css";
@@ -52,6 +52,7 @@ import {
 import { updateTaskAndQuestionIdInUrl } from "@/lib/utils/urlUtils";
 import { useRouter } from "next/navigation";
 import { useThemePreference } from "@/lib/hooks/useThemePreference";
+const EMPTY_ARRAY: any[] = [];
 
 // Default configuration for new questions
 const defaultQuestionConfig: QuizQuestionConfig = {
@@ -98,7 +99,7 @@ export const getKnowledgeBaseContent = (config: QuizQuestionConfig) => {
 };
 
 const QuizEditor = forwardRef<QuizEditorHandle, QuizEditorProps>(({
-    initialQuestions = [], // Not used anymore - kept for backward compatibility
+    initialQuestions = EMPTY_ARRAY, // Not used anymore - kept for backward compatibility
     onChange,
     className = "",
     isPreviewMode = false,
@@ -164,6 +165,8 @@ const QuizEditor = forwardRef<QuizEditorHandle, QuizEditorProps>(({
     const [isLoadingIntegration, setIsLoadingIntegration] = useState(false);
     const [integrationError, setIntegrationError] = useState<string | null>(null);
 
+
+
     // Add useEffect to automatically hide toast after 5 seconds
     useEffect(() => {
         if (showToast) {
@@ -176,12 +179,47 @@ const QuizEditor = forwardRef<QuizEditorHandle, QuizEditorProps>(({
         }
     }, [showToast]);
 
-    // Make sure we reset questions when component mounts for draft quizzes
+    // Calculate Curriculum Statistics dynamically for Assessment mode
+    const curriculumStats = useMemo(() => {
+        if (taskType !== 'assessment' || questions.length === 0) return null;
+        
+        let totalPoints = 0;
+        let mcqCount = 0;
+        let codingCount = 0;
+        const topicMap: Record<string, { points: number, count: number }> = {};
+        
+        questions.forEach(q => {
+            const topic = q.config.settings?.topic || 'Uncategorized';
+            const points = q.config.settings?.points || 0;
+            const isMcq = q.config.questionType === 'objective';
+            
+            totalPoints += points;
+            if (isMcq) mcqCount++;
+            else codingCount++;
+            
+            if (!topicMap[topic]) topicMap[topic] = { points: 0, count: 0 };
+            topicMap[topic].points += points;
+            topicMap[topic].count++;
+        });
+        
+        return { totalPoints, mcqCount, codingCount, topicMap };
+    }, [questions, taskType]);
+
+    // Make sure we initialize questions when component mounts for draft quizzes
     useEffect(() => {
-        if (status === 'draft') {
-            setQuestions([]);
+        if (status === 'draft' && !hasFetchedData) {
+            if (initialQuestions && initialQuestions.length > 0) {
+                // Only set if they are different from current questions (basic length check for now)
+                if (questions.length !== initialQuestions.length) {
+                    setQuestions(initialQuestions);
+                    setHasFetchedData(true);
+                }
+            } else {
+                // If it's a regular draft start with no questions, mark as fetched
+                setHasFetchedData(true);
+            }
         }
-    }, [status]);
+    }, [status, initialQuestions, questions.length, hasFetchedData]);
 
     // Fetch school scorecards when component mounts for draft quizzes
     useEffect(() => {
@@ -409,6 +447,16 @@ const QuizEditor = forwardRef<QuizEditorHandle, QuizEditorProps>(({
 
     // Current question index
     const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
+
+    // AI Refinement State
+    const [showAiRefinement, setShowAiRefinement] = useState<boolean>(false);
+    const [aiRefinementPrompt, setAiRefinementPrompt] = useState<string>('');
+    const [isAiRefining, setIsAiRefining] = useState<boolean>(false);
+
+    useEffect(() => {
+        setShowAiRefinement(false);
+        setAiRefinementPrompt('');
+    }, [currentQuestionIndex]);
 
     // Internal state to track the current question ID for preview mode
     const [activeQuestionId, setActiveQuestionId] = useState<string | undefined>(() => {
@@ -880,8 +928,8 @@ const QuizEditor = forwardRef<QuizEditorHandle, QuizEditorProps>(({
         let questionType = 'objective';
         let inputType: 'text' | 'code' | 'audio' = 'text';
         let codingLanguages: string[] = [];
-        let responseType: 'chat' | 'exam' = 'chat';
-        let settings: { allowCopyPaste?: boolean } = { allowCopyPaste: true };
+        let responseType: 'chat' | 'exam' = taskType === 'assessment' ? 'exam' : 'chat';
+        let settings: { allowCopyPaste?: boolean } = taskType === 'assessment' ? { allowCopyPaste: false } : { allowCopyPaste: true };
         // If there's at least one question (to be used as a reference)
         if (questions.length > 0) {
             const previousQuestion = questions[questions.length - 1];
@@ -1464,6 +1512,71 @@ const QuizEditor = forwardRef<QuizEditorHandle, QuizEditorProps>(({
     // Define dropdown options
     // Now removed and imported from dropdownOptions.ts
 
+    const handleAiRefine = async () => {
+        if (!aiRefinementPrompt.trim() || isAiRefining) return;
+        setIsAiRefining(true);
+        try {
+            const currentQuestion = questions[currentQuestionIndex];
+            
+            // Collect original text blocks
+            let origQuestion = extractTextFromBlocks(currentQuestion.content).trim();
+            // Collect original answer text if set
+            let origAnswer = extractTextFromBlocks(currentQuestion.config.correctAnswer || []).trim();
+
+            const requestBody = {
+                task_id: parseInt(taskId || "0"),
+                user_prompt: aiRefinementPrompt,
+                original_question_text: origQuestion,
+                original_answer_text: origAnswer,
+                metadata: currentQuestion.config.settings || {},
+                question_type: currentQuestion.config.questionType === 'objective' ? 'mcq' : 'coding'
+            };
+
+            const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8001';
+            const response = await fetch(`${backendUrl}/ai/assessment/edit-question`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(requestBody),
+            });
+
+            if (!response.ok) throw new Error("Failed to edit question");
+            
+            const editedQuestionData = await response.json();
+            
+            // Apply mutations
+            const updatedQuestions = [...questions];
+            const q = updatedQuestions[currentQuestionIndex];
+            q.content = editedQuestionData.content;
+            q.config.title = editedQuestionData.config.title;
+            q.config.questionType = editedQuestionData.config.questionType;
+            q.config.inputType = editedQuestionData.config.inputType;
+            
+            if (editedQuestionData.config.codingLanguages) {
+                q.config.codingLanguages = editedQuestionData.config.codingLanguages;
+            }
+            if (editedQuestionData.config.correctAnswer) {
+                q.config.correctAnswer = editedQuestionData.config.correctAnswer;
+            }
+            if (editedQuestionData.config.scorecardData) {
+                q.config.scorecardData = editedQuestionData.config.scorecardData;
+            }
+            
+            setQuestions(updatedQuestions);
+            if (onQuestionChange && !isPreviewMode) {
+                onQuestionChange(q.id);
+            }
+            setShowAiRefinement(false);
+            setAiRefinementPrompt('');
+            displayToast("AI Refinement", "Question successfully updated!");
+            
+        } catch (err) {
+            console.error(err);
+            alert("Failed to refine question.");
+        } finally {
+            setIsAiRefining(false);
+        }
+    };
+
     // Get dropdown option objects based on config values
     const getQuestionTypeOption = useCallback((type: string = 'objective') => {
         return questionTypeOptions.find(option => option.value === type) || questionTypeOptions[0];
@@ -1682,20 +1795,19 @@ const QuizEditor = forwardRef<QuizEditorHandle, QuizEditorProps>(({
             // Set answer type based on config.inputType or default to 'text'
             setSelectedAnswerType(getAnswerTypeOption(currentConfig.inputType));
 
-            // Set purpose based on config.purpose or default to 'practice'
-            setSelectedPurpose(getPurposeOption(currentConfig.responseType));
-
-            // Set copy-paste control based on config.settings
-            const allowCopyPaste = currentConfig.settings?.allowCopyPaste;
-            if (allowCopyPaste !== undefined) {
-                const copyPasteOption = copyPasteControlOptions.find(opt => opt.value === allowCopyPaste.toString());
-                if (copyPasteOption) {
-                setSelectedCopyPasteControl(copyPasteOption);
+            // Set purpose and copy-paste control
+            if (taskType === 'assessment') {
+                setSelectedPurpose(getPurposeOption('exam'));
+                setSelectedCopyPasteControl(copyPasteControlOptions.find(opt => opt.value === 'false') || copyPasteControlOptions[1]);
+            } else {
+                setSelectedPurpose(getPurposeOption(currentConfig.responseType));
+                const allowCopyPaste = currentConfig.settings?.allowCopyPaste;
+                if (allowCopyPaste !== undefined) {
+                    const copyPasteOption = copyPasteControlOptions.find(opt => opt.value === allowCopyPaste.toString());
+                    setSelectedCopyPasteControl(copyPasteOption || copyPasteControlOptions[1]);
                 } else {
                     setSelectedCopyPasteControl(copyPasteControlOptions[1]);
                 }
-            } else {
-                setSelectedCopyPasteControl(copyPasteControlOptions[1]);
             }
 
             // Set coding languages based on config.codingLanguages or default to first option
@@ -1924,7 +2036,7 @@ const QuizEditor = forwardRef<QuizEditorHandle, QuizEditorProps>(({
                                                 options={questionPurposeOptions}
                                                 selectedOption={selectedPurpose}
                                                 onChange={handlePurposeChange}
-                                                disabled={readOnly}
+                                                disabled={readOnly || taskType === 'assessment'}
                                             />
                                         </div>
                                         <div className="flex items-center">
@@ -1934,7 +2046,7 @@ const QuizEditor = forwardRef<QuizEditorHandle, QuizEditorProps>(({
                                                 options={copyPasteControlOptions}
                                                 selectedOption={selectedCopyPasteControl}
                                                 onChange={handleCopyPasteControlChange}
-                                                disabled={readOnly}
+                                                disabled={readOnly || taskType === 'assessment'}
                                             />
                                         </div>
                                         <div className="flex items-center">
@@ -1974,7 +2086,11 @@ const QuizEditor = forwardRef<QuizEditorHandle, QuizEditorProps>(({
                                     </div>
 
                                     {/* Segmented control for editor tabs */}
-                                    <div className="flex justify-center py-4 bg-white dark:bg-transparent">
+                                    <div className="flex justify-between items-center py-4 px-6 bg-white dark:bg-transparent border-b border-gray-100 dark:border-gray-800">
+                                        <div className="inline-flex opacity-0 pointer-events-none">
+                                            {/* Spacer to center the tabs if we add the AI button */}
+                                            <button className="px-4 py-2 opacity-0">Hidden</button>
+                                        </div>
                                         <div className="inline-flex rounded-lg p-1 bg-gray-200 dark:bg-[#222222]">
                                             <button
                                                 className={`flex items-center px-4 py-2 rounded-md text-sm font-medium cursor-pointer ${activeEditorTab === 'question'
@@ -2020,7 +2136,60 @@ const QuizEditor = forwardRef<QuizEditorHandle, QuizEditorProps>(({
                                                 AI training resources
                                             </button>
                                         </div>
+                                        
+                                        {taskType === 'assessment' && !readOnly ? (
+                                            <div className="inline-flex">
+                                                <button
+                                                    onClick={() => setShowAiRefinement(!showAiRefinement)}
+                                                    className={`flex items-center px-4 py-2 rounded-md text-sm font-medium transition-colors ${showAiRefinement ? 'bg-purple-600 text-white shadow-md' : 'bg-purple-50 text-purple-700 hover:bg-purple-100 dark:bg-purple-900/40 dark:text-purple-300 dark:hover:bg-purple-900/60'}`}
+                                                >
+                                                    <Bot size={16} className="mr-2" />
+                                                    AI Edit
+                                                </button>
+                                            </div>
+                                        ) : (
+                                            <div className="inline-flex opacity-0 pointer-events-none">
+                                                <button className="px-4 py-2 opacity-0">Hidden</button>
+                                            </div>
+                                        )}
                                     </div>
+
+                                    {/* AI Refinement Overlay Block */}
+                                    {showAiRefinement && taskType === 'assessment' && !readOnly && (
+                                        <div className="bg-[#fcfaff] dark:bg-[#2A1F3D] border-b border-purple-100 dark:border-purple-900 px-6 py-4 flex flex-col space-y-3 shadow-inner">
+                                            <div className="flex items-center text-sm font-semibold text-purple-800 dark:text-purple-300">
+                                                <Sparkles size={14} className="mr-2" />
+                                                Refine this question with AI
+                                            </div>
+                                            <div className="flex space-x-3">
+                                                <textarea 
+                                                    value={aiRefinementPrompt}
+                                                    onChange={(e) => setAiRefinementPrompt(e.target.value)}
+                                                    placeholder="e.g. Make this scenario about a startup rather than a car dealership"
+                                                    className="flex-1 bg-white dark:bg-[#1A1A1A] border border-purple-200 dark:border-purple-800 rounded-xl p-3 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400 focus:border-transparent resize-none min-h-[60px]"
+                                                    rows={1}
+                                                    disabled={isAiRefining}
+                                                    onKeyDown={(e) => {
+                                                        if (e.key === 'Enter' && !e.shiftKey) {
+                                                            e.preventDefault();
+                                                            handleAiRefine();
+                                                        }
+                                                    }}
+                                                />
+                                                <button
+                                                    onClick={handleAiRefine}
+                                                    disabled={!aiRefinementPrompt.trim() || isAiRefining}
+                                                    className="self-end bg-purple-600 hover:bg-purple-700 disabled:bg-purple-400 disabled:cursor-not-allowed text-white p-3 rounded-xl shadow-md transition-all active:scale-95"
+                                                >
+                                                    {isAiRefining ? (
+                                                        <div className="w-5 h-5 border-2 border-white rounded-full border-t-transparent animate-spin" />
+                                                    ) : (
+                                                        <Sparkles size={20} />
+                                                    )}
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
 
                                     {/* Editor Content */}
                                     <div className="flex-1 overflow-hidden">

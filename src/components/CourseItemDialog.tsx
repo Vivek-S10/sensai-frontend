@@ -53,6 +53,19 @@ const DynamicAssignmentEditor = dynamic(
     }
 );
 
+// Assessment Curriculum Chat Interface
+const DynamicAssessmentChatInterface = dynamic(
+    () => import("./AssessmentChatInterface"),
+    {
+        ssr: false,
+        loading: () => (
+            <div className="flex items-center justify-center h-full w-full">
+                <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-black dark:border-white"></div>
+            </div>
+        )
+    }
+);
+
 // Define props interface for the component
 interface CourseItemDialogProps {
     isOpen: boolean;
@@ -77,6 +90,7 @@ interface CourseItemDialogProps {
     schoolId?: string; // School ID for fetching scorecards
     courseId?: string; // Add courseId prop for learning materials
 }
+const EMPTY_QUESTIONS: any[] = [];
 
 const CourseItemDialog: React.FC<CourseItemDialogProps> = ({
     isOpen,
@@ -114,6 +128,9 @@ const CourseItemDialog: React.FC<CourseItemDialogProps> = ({
 
     // State to track preview mode for any content type
     const [previewMode, setPreviewMode] = useState(false);
+
+    // State to track if we should show the Curriculum Chat UI for new assessments
+    const [showCurriculumChat, setShowCurriculumChat] = useState(false);
 
     // State for scheduled date
     const [scheduledDate, setScheduledDate] = useState<Date | null>(null);
@@ -155,7 +172,15 @@ const CourseItemDialog: React.FC<CourseItemDialogProps> = ({
         } else {
             setScheduledDate(null);
         }
-    }, [activeItem]);
+
+        if (isOpen && activeItem) {
+            if (activeItem.type === 'assessment' && (!activeItem.questions || activeItem.questions.length === 0)) {
+                setShowCurriculumChat(true);
+            } else {
+                setShowCurriculumChat(false);
+            }
+        }
+    }, [activeItem, isOpen]);
 
     // Function to validate scheduled date
     const verifyScheduledDateAndSchedule = (date: Date | null) => {
@@ -293,6 +318,8 @@ const CourseItemDialog: React.FC<CourseItemDialogProps> = ({
                     // Set default title based on item type
                     let defaultTitle = "New learning material";
                     if (activeItem.type === 'quiz') defaultTitle = "New quiz";
+                    if (activeItem.type === 'assessment') defaultTitle = "New assessment";
+                    if (activeItem.type === 'assignment') defaultTitle = "New assignment";
 
                     const isTitleChanged = currentTitle !== defaultTitle && currentTitle.trim() !== '';
 
@@ -456,6 +483,7 @@ const CourseItemDialog: React.FC<CourseItemDialogProps> = ({
             // Set default title based on item type
             let defaultTitle = "New learning material";
             if (activeItem.type === 'quiz') defaultTitle = "New quiz";
+            if (activeItem.type === 'assessment') defaultTitle = "New assessment";
             if (activeItem.type === 'assignment') defaultTitle = "New assignment";
 
             const isTitleChanged = currentTitle !== defaultTitle && currentTitle.trim() !== '';
@@ -563,7 +591,7 @@ const CourseItemDialog: React.FC<CourseItemDialogProps> = ({
         // If we're not already in preview mode and trying to enter it
         if (!previewMode) {
             // Check content based on active item type
-            if (activeItem?.type === 'quiz' && quizEditorRef.current) {
+            if ((activeItem?.type === 'quiz' || activeItem?.type === 'assessment') && quizEditorRef.current) {
                 // Check if current question has content
                 const hasContent = quizEditorRef.current.hasQuestionContent();
 
@@ -703,8 +731,8 @@ const CourseItemDialog: React.FC<CourseItemDialogProps> = ({
 
     // Function to check for unsaved scorecard changes and handle appropriately
     const checkUnsavedScorecardChangesBeforeAction = (action: () => void) => {
-        // For quizzes, check for unsaved scorecard changes first
-        if (activeItem?.type === 'quiz' && quizEditorRef.current) {
+        // For quizzes and assessments, check for unsaved scorecard changes first
+        if ((activeItem?.type === 'quiz' || activeItem?.type === 'assessment') && quizEditorRef.current) {
             if (quizEditorRef.current.hasUnsavedScorecardChanges()) {
                 pendingActionRef.current = action;
                 setShowUnsavedScorecardConfirmation(true);
@@ -1196,7 +1224,7 @@ const CourseItemDialog: React.FC<CourseItemDialogProps> = ({
                                         }
 
                                         // Show toast notification
-                                        const publishMessage = updatedData.scheduled_publish_at ? `Your quiz has been scheduled for publishing` : `Your quiz has been published`;
+                                        const publishMessage = updatedData.scheduled_publish_at ? `Your ${activeItem.type} has been scheduled for publishing` : `Your ${activeItem.type} has been published`;
                                         displayToast("Published", publishMessage);
                                     }
 
@@ -1207,7 +1235,103 @@ const CourseItemDialog: React.FC<CourseItemDialogProps> = ({
                                 onQuestionChangeWithUnsavedScorecardChanges={() => {
                                     setShowUnsavedScorecardChangesInfo(true);
                                 }}
+                                taskType={activeItem.type as any}
                             />
+                            ) : activeItem?.type === 'assessment' ? (
+                                showCurriculumChat ? (
+                                    <DynamicAssessmentChatInterface
+                                        taskId={activeItem.id.toString()}
+                                        onContinueToGenerateQuestions={(generatedQuestions) => {
+                                            if (generatedQuestions && generatedQuestions.length > 0) {
+                                                activeItem.questions = generatedQuestions;
+                                            }
+                                            displayToast("Questions Generated", `Successfully mapped ${generatedQuestions.length} questions.`);
+                                            setShowCurriculumChat(false);
+                                        }}
+                                    />
+                                ) : (
+                                    <DynamicQuizEditor
+                                        ref={quizEditorRef}
+                                        key={`assessment-${activeItem.id}-${isEditMode}`}
+                                    readOnly={activeItem.status === 'published' && !isEditMode}
+                                    taskId={activeItem.id}
+                                    status={activeItem.status}
+                                    showPublishConfirmation={showPublishConfirmation}
+                                    onPublishCancel={onPublishCancel}
+                                    onPublishConfirm={onPublishConfirm}
+                                    isEditMode={isEditMode}
+                                    onSaveSuccess={(updatedData) => {
+                                        // Handle save success
+                                        if (updatedData) {
+                                            // Update the activeItem with new title and questions
+                                            if (activeItem) {
+                                                activeItem.title = updatedData.title;
+                                                activeItem.scheduled_publish_at = updatedData.scheduled_publish_at;
+
+                                                if (updatedData.questions) {
+                                                    activeItem.questions = updatedData.questions;
+                                                }
+                                            }
+
+                                            // Call onSaveItem to exit edit mode
+                                            onSaveItem();
+
+                                            // Clear the history state since changes have been saved
+                                            // This prevents needing to click back twice after saving
+                                            if (window.history.state && window.history.state.dialogOpen && activeItem.status === 'published') {
+                                                window.history.back();
+                                            }
+
+                                            // Show toast notification for save success
+                                            displayToast("Saved", `Your ${activeItem.type} has been updated`);
+                                        }
+                                    }}
+                                    onPublishSuccess={(updatedData) => {
+                                        // Handle publish success
+                                        if (updatedData) {
+                                            // Properly update the UI state first
+                                            if (activeItem && updatedData.status === 'published') {
+                                                activeItem.status = 'published';
+                                                activeItem.title = updatedData.title;
+                                                activeItem.scheduled_publish_at = updatedData.scheduled_publish_at;
+
+                                                if (updatedData.scheduled_publish_at) {
+                                                    setScheduledDate(new Date(updatedData.scheduled_publish_at));
+                                                } else {
+                                                    setScheduledDate(null);
+                                                }
+
+                                                if (updatedData.questions) {
+                                                    activeItem.questions = updatedData.questions;
+                                                }
+                                            }
+
+                                            onPublishConfirm();
+
+                                            if (window.history.state && window.history.state.dialogOpen) {
+                                                window.history.back();
+                                            }
+
+                                            const publishMessage = updatedData.scheduled_publish_at ? `Your assessment has been scheduled for publishing` : `Your assessment has been published`;
+                                            displayToast("Published", publishMessage);
+                                        }
+
+                                        onSetShowPublishConfirmation(false);
+                                    }}
+                                    schoolId={schoolId}
+                                    onQuestionChangeWithUnsavedScorecardChanges={() => {
+                                        setShowUnsavedScorecardChangesInfo(true);
+                                    }}
+                                    taskType="assessment"
+                                    initialQuestions={activeItem?.questions || EMPTY_QUESTIONS}
+                                    onChange={(questions) => {
+                                        if (activeItem) {
+                                            activeItem.questions = questions;
+                                        }
+                                        onQuizContentChange(questions);
+                                    }}
+                                />
+                                )
                             ) : activeItem?.type === 'assignment' ? (
                                 <DynamicAssignmentEditor
                                     ref={assignmentEditorRef}

@@ -17,7 +17,19 @@ export interface Quiz {
   type: 'quiz';
   numQuestions?: number;
   questions: QuizQuestion[];
-  status?: string; // Add status field to track draft/published state
+  status?: string;
+  scheduled_publish_at: string | null;
+  isGenerating?: boolean;
+}
+
+export interface Assessment {
+  id: string;
+  title: string;
+  position: number;
+  type: 'assessment';
+  numQuestions?: number;
+  questions: QuizQuestion[];
+  status?: string;
   scheduled_publish_at: string | null;
   isGenerating?: boolean;
 }
@@ -32,7 +44,7 @@ export interface Assignment {
   isGenerating?: boolean;
 }
 
-export type ModuleItem = LearningMaterial | Quiz | Assignment;
+export type ModuleItem = LearningMaterial | Quiz | Assignment | Assessment;
 
 export interface Module {
   id: string;

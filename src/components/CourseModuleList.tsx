@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { ChevronUp, ChevronDown, ChevronRight, ChevronDown as ChevronDownExpand, Plus, HelpCircle, Trash, Clipboard, Check, Loader2, Copy, FileText, Brain, BookOpen, PenSquare, FileQuestion, ClipboardList, Lock, Ban } from "lucide-react";
+import { ChevronUp, ChevronDown, ChevronRight, ChevronDown as ChevronDownExpand, Plus, HelpCircle, Trash, Clipboard, Check, Loader2, Copy, FileText, Brain, BookOpen, PenSquare, FileQuestion, ClipboardList, Lock, Ban, Zap } from "lucide-react";
 import { Module, ModuleItem, Quiz } from "@/types/course";
 import { QuizQuestion } from "@/types/quiz"; // Import from types instead
 import CourseItemDialog from "@/components/CourseItemDialog";
@@ -20,6 +20,7 @@ interface CourseModuleListProps {
     onAddLearningMaterial?: (moduleId: string) => Promise<void>;
     onAddQuiz?: (moduleId: string) => Promise<void>;
     onAddAssignment?: (moduleId: string) => Promise<void>;
+    onAddAssessment?: (moduleId: string) => Promise<void>;
     onMoveModuleUp?: (moduleId: string) => void;
     onMoveModuleDown?: (moduleId: string) => void;
     onDeleteModule?: (moduleId: string) => void;
@@ -63,6 +64,7 @@ export default function CourseModuleList({
     onAddLearningMaterial,
     onAddQuiz,
     onAddAssignment,
+    onAddAssessment,
     onMoveModuleUp,
     onMoveModuleDown,
     onDeleteModule,
@@ -949,8 +951,16 @@ export default function CourseModuleList({
                                             const quizIconColor = isItemCompleted
                                                 ? 'text-white'
                                                 : hasPartialQuizProgress
-                                                    ? 'text-amber-700 dark:text-yellow-500'
-                                                    : 'text-violet-700 dark:text-indigo-100';
+                                                    ? 'text-amber-800 dark:text-amber-200'
+                                                    : 'text-indigo-700 dark:text-indigo-300';
+
+                                            const assessmentWrapperClass = isItemCompleted
+                                                ? 'bg-emerald-500 dark:bg-emerald-500'
+                                                : 'bg-violet-100 dark:bg-violet-900/60';
+
+                                            const assessmentIconColor = isItemCompleted
+                                                ? 'text-white'
+                                                : 'text-violet-700 dark:text-violet-200';
 
                                             return (
                                                 <div
@@ -983,6 +993,10 @@ export default function CourseModuleList({
                                                         ) : item.type === 'assignment' ? (
                                                             <div className={`w-7 h-7 rounded-md flex items-center justify-center ${assignmentWrapperClass}`}>
                                                                 <PenSquare size={16} className={assignmentIconColor} />
+                                                            </div>
+                                                        ) : item.type === 'assessment' ? (
+                                                            <div className={`w-7 h-7 rounded-md flex items-center justify-center ${assessmentWrapperClass}`}>
+                                                                <Zap size={16} className={assessmentIconColor} />
                                                             </div>
                                                         ) : (
                                                             <div className={`w-7 h-7 rounded-md flex items-center justify-center ${quizWrapperClass}`}>
@@ -1162,7 +1176,7 @@ export default function CourseModuleList({
                                                         Quiz
                                                     </button>
                                                 </Tooltip>
-                                                <Tooltip content="Add a new project/assignment" position="top">
+                                                <Tooltip content="Assign a task with manual or AI evaluation" position="top">
                                                     <button
                                                         onClick={async () => {
                                                             if (onAddAssignment) {
@@ -1177,6 +1191,23 @@ export default function CourseModuleList({
                                                     >
                                                         <Plus size={14} className="mr-1" />
                                                         Assignment
+                                                    </button>
+                                                </Tooltip>
+                                                <Tooltip content="Create an AI-driven assessment with exam mode" position="top">
+                                                    <button
+                                                        onClick={async () => {
+                                                            if (onAddAssessment) {
+                                                                try {
+                                                                    await onAddAssessment(module.id);
+                                                                } catch (error) {
+                                                                    console.error("Failed to add assessment:", error);
+                                                                }
+                                                            }
+                                                        }}
+                                                        className="flex items-center px-3 py-1.5 text-sm bg-violet-100 text-violet-700 hover:bg-violet-200 dark:bg-violet-900/60 dark:text-violet-200 dark:hover:bg-violet-800/70 rounded-full transition-colors cursor-pointer"
+                                                    >
+                                                        <Plus size={14} className="mr-1" />
+                                                        Assessment
                                                     </button>
                                                 </Tooltip>
                                             </div>

@@ -39,6 +39,13 @@ const defaultQuestionConfig: QuizQuestionConfig = {
     questionType: 'objective',
     knowledgeBaseBlocks: [],
     linkedMaterialIds: [],
+    settings: { allowCopyPaste: true }
+};
+
+const defaultAssessmentQuestionConfig: QuizQuestionConfig = {
+    ...defaultQuestionConfig,
+    responseType: 'exam',
+    settings: { allowCopyPaste: false }
 };
 
 
@@ -458,6 +465,20 @@ export default function CreateCourse() {
         return addItemToState(moduleId, newItem, position);
     };
 
+    const addAssessmentToState = (moduleId: string, taskData: any, position: number) => {
+        const newItem: Assessment = {
+            id: taskData.id.toString(),
+            title: taskData.title || "New assessment",
+            position: position,
+            type: 'assessment',
+            questions: taskData.questions || [],
+            status: 'draft',
+            scheduled_publish_at: null
+        };
+
+        return addItemToState(moduleId, newItem, position);
+    };
+
     // Add handleDuplicateItem function to handle task duplication
     const handleDuplicateItem = async (moduleId: string, taskData: any, position: number) => {
         try {
@@ -472,6 +493,8 @@ export default function CreateCourse() {
                 addQuizToState(moduleId, taskData, position);
             } else if (taskData.type === "assignment") {
                 addAssignmentToState(moduleId, taskData, position);
+            } else if (taskData.type === "assessment") {
+                addAssessmentToState(moduleId, taskData, position);
             }
 
             // Auto-hide toast after 3 seconds
@@ -592,6 +615,34 @@ export default function CreateCourse() {
         }
     };
 
+    const addAssessment = async (moduleId: string) => {
+        try {
+            const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/tasks/`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    course_id: parseInt(courseId),
+                    milestone_id: parseInt(moduleId),
+                    type: "assessment",
+                    title: "New assessment",
+                    status: "draft"
+                }),
+            });
+
+            if (!response.ok) {
+                throw new Error(`Failed to create assessment: ${response.status}`);
+            }
+
+            const data = await response.json();
+
+            addAssessmentToState(moduleId, data, modules.find(m => m.id === moduleId)?.items.length || 0);
+        } catch (error) {
+            console.error("Error creating assessment:", error);
+        }
+    };
+
     const deleteItem = (moduleId: string, itemId: string) => {
         setModules(prevModules => prevModules.map(module => {
             if (module.id === moduleId) {
@@ -671,12 +722,13 @@ export default function CreateCourse() {
 
         updateTaskAndQuestionIdInUrl(router, itemId, questionId);
 
-        // Ensure quiz items have questions property initialized
-        if (item.type === 'quiz' && !item.questions) {
+        // Ensure quiz and assessment items have questions property initialized
+        if ((item.type === 'quiz' || item.type === 'assessment') && !item.questions) {
+            const config = item.type === 'assessment' ? defaultAssessmentQuestionConfig : defaultQuestionConfig;
             const updatedItem = {
                 ...item,
-                questions: [{ id: `question-${Date.now()}`, content: [], config: { ...defaultQuestionConfig } }]
-            } as Quiz;
+                questions: [{ id: `question-${Date.now()}`, content: [], config: { ...config } }]
+            } as Quiz | Assessment;
 
             // Update the module with the fixed item
             setModules(prevModules =>
@@ -2053,6 +2105,7 @@ export default function CreateCourse() {
                             onAddLearningMaterial={addLearningMaterial}
                             onAddQuiz={addQuiz}
                             onAddAssignment={addAssignment}
+                            onAddAssessment={addAssessment}
                             onMoveModuleUp={moveModuleUp}
                             onMoveModuleDown={moveModuleDown}
                             onDeleteModule={deleteModule}
