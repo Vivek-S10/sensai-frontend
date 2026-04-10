@@ -1,8 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Upload, X, Send, Bot, User, FileText, ArrowRight } from 'lucide-react';
+import { Upload, Send, Bot, User, ChevronDown, Sparkles } from 'lucide-react';
 import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
-// Define the workerSrc
 if (typeof window !== 'undefined' && process.env.NODE_ENV !== 'test') {
     try {
         GlobalWorkerOptions.workerSrc = new URL(
@@ -32,6 +33,7 @@ export default function AssessmentChatInterface({ taskId, onContinueToGenerateQu
     const [fileExtracting, setFileExtracting] = useState(false);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const textareaRef = useRef<HTMLTextAreaElement>(null);
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -40,6 +42,13 @@ export default function AssessmentChatInterface({ taskId, onContinueToGenerateQu
     useEffect(() => {
         scrollToBottom();
     }, [messages, isGenerating]);
+
+    useEffect(() => {
+        if (textareaRef.current) {
+            textareaRef.current.style.height = 'auto';
+            textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 300)}px`;
+        }
+    }, [input]);
 
     const handleExtractPdfText = async (file: File): Promise<string> => {
         try {
@@ -65,8 +74,15 @@ export default function AssessmentChatInterface({ taskId, onContinueToGenerateQu
             setFileExtracting(true);
             try {
                 const extractedText = await handleExtractPdfText(file);
-                const pdfContext = `[PDF EXTRACED CONTENT: ${file.name}]\n` + extractedText;
-                setInput((prev) => prev ? prev + '\n\n' + pdfContext : pdfContext);
+                const pdfContent = `**[PDF UPLOADED: ${file.name}]**\n\n${extractedText.substring(0, 5000)}${extractedText.length > 5000 ? '...' : ''}`;
+                
+                setMessages(prev => [...prev, {
+                    role: 'user',
+                    content: `I've uploaded a PDF: ${file.name}. Please analyze the curriculum and extract key skills.`
+                }]);
+                
+                setInput("");
+                await sendMessage(pdfContent);
             } catch (err) {
                 alert("Failed to parse PDF.");
             } finally {
@@ -80,92 +96,75 @@ export default function AssessmentChatInterface({ taskId, onContinueToGenerateQu
         }
     };
 
-    const triggerFileInput = () => {
-        fileInputRef.current?.click();
-    };
-
-    const parseJSONStream = async (response: Response) => {
-        if (!response.body) throw new Error('ReadableStream not yet supported in this browser.');
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder('utf-8');
-
-        let rawText = '';
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-
-            const chunk = decoder.decode(value, { stream: true });
-            
-            // The AI returns ndjson (Newline Delimited JSON)
-            const jsonLines = chunk.split('\n').filter(line => line.trim() !== '');
-            for (const line of jsonLines) {
-                try {
-                    const parsed = JSON.parse(line);
-                    if (parsed.response) { // The Pydantic model response format
-                        rawText = parsed.response;
-                        
-                        setMessages(prev => {
-                            const newMessages = [...prev];
-                            const lastMessageIndex = newMessages.length - 1;
-                            if (lastMessageIndex >= 0 && newMessages[lastMessageIndex].role === 'assistant') {
-                                newMessages[lastMessageIndex].content = rawText;
-                            } else {
-                                newMessages.push({ role: 'assistant', content: rawText });
-                            }
-                            return newMessages;
-                        });
-                    }
-                } catch (e) {
-                    console.log("Error parsing chunk", line);
-                }
-            }
-        }
-    };
-
-    const handleSubmit = async () => {
-        if (!input.trim() || isGenerating) return;
-
-        const userMessage = input;
-        setInput('');
-        
-        // Add user message to UI immediately
-        const newMessagesList = [...messages, { role: 'user' as const, content: userMessage }];
-        setMessages(newMessagesList);
+    const sendMessage = async (contentToSend: string) => {
         setIsGenerating(true);
-
         try {
-            // Include user_id, which we normally get from context, but we will fetch from localStorage for now
-            // or we could pass user_id down from a higher level component.
-            // Using a dummy user_id 1 since this is an admin dashboard currently relying on auth context
             const requestBody = {
                 task_id: parseInt(taskId),
-                user_id: 1, // Placeholder
-                new_message: userMessage,
+                user_id: 1, 
+                new_message: contentToSend,
                 chat_history: messages
             };
 
             const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8001';
             const response = await fetch(`${backendUrl}/ai/assessment/topics-chat`, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(requestBody),
             });
 
-            if (!response.ok) {
-                throw new Error("Failed to send request");
-            }
+            if (!response.ok) throw new Error("Failed to send request");
 
             await parseJSONStream(response);
-            
         } catch (error) {
             console.error("Error during chat stream:", error);
-            // Append error message
             setMessages(prev => [...prev, { role: 'assistant', content: "Sorry, I encountered an error. Please try again." }]);
         } finally {
             setIsGenerating(false);
         }
+    };
+
+    const parseJSONStream = async (response: Response) => {
+        if (!response.body) throw new Error('ReadableStream not supported.');
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder('utf-8');
+        let rawText = '';
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            const chunk = decoder.decode(value, { stream: true });
+            const jsonLines = chunk.split('\n').filter(line => line.trim() !== '');
+            
+            for (const line of jsonLines) {
+                try {
+                    const parsed = JSON.parse(line);
+                    if (parsed.response) {
+                        rawText = parsed.response;
+                        setMessages(prev => {
+                            const newMessages = [...prev];
+                            const lastMsgIdx = newMessages.length - 1;
+                            if (lastMsgIdx >= 0 && newMessages[lastMsgIdx].role === 'assistant') {
+                                return newMessages.map((m, i) => i === lastMsgIdx ? { ...m, content: rawText } : m);
+                            } else {
+                                return [...newMessages, { role: 'assistant', content: rawText }];
+                            }
+                        });
+                    }
+                } catch (e) {
+                    console.error("Stream parse error", e);
+                }
+            }
+        }
+    };
+
+    const handleSubmit = () => {
+        if (!input.trim() || isGenerating) return;
+        const userMsg = input;
+        setInput('');
+        setMessages(prev => [...prev, { role: 'user', content: userMsg }]);
+        sendMessage(userMsg);
     };
 
     const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -174,175 +173,143 @@ export default function AssessmentChatInterface({ taskId, onContinueToGenerateQu
             handleSubmit();
         }
     };
-    
+
     const handleGenerateQuestions = async () => {
         setIsGeneratingDeepQuestions(true);
         try {
-            const requestBody = {
-                task_id: parseInt(taskId),
-                user_id: 1, // Placeholder
-                new_message: "", // Empty for generating questions
-                chat_history: messages
-            };
-
             const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8001';
             const response = await fetch(`${backendUrl}/ai/assessment/generate-questions`, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(requestBody),
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    task_id: parseInt(taskId),
+                    user_id: 1,
+                    new_message: "",
+                    chat_history: messages
+                }),
             });
 
-            if (!response.ok) {
-                throw new Error("Failed to generate questions");
-            }
-
+            if (!response.ok) throw new Error("Failed to generate questions");
             const generatedQuestions = await response.json();
             onContinueToGenerateQuestions(generatedQuestions);
         } catch (error) {
             console.error("Error generating deep questions:", error);
-            alert("Failed to generate questions from curriculum. Please try again.");
+            alert("Failed to generate questions.");
         } finally {
             setIsGeneratingDeepQuestions(false);
         }
     };
 
-    // Check if there's at least one assistant message
-    const hasAssistantResponse = messages.some(m => m.role === 'assistant');
-
     return (
-        <div className="flex flex-col h-full bg-[#f5f5f5] dark:bg-[#1A1A1A]">
-            <div className="flex-1 overflow-y-auto p-6 space-y-6">
-                {messages.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center h-full text-center max-w-2xl mx-auto space-y-6">
-                        <div className="w-16 h-16 bg-purple-100 dark:bg-purple-900/30 rounded-2xl flex items-center justify-center">
-                            <Bot className="w-8 h-8 text-purple-600 dark:text-purple-400" />
-                        </div>
-                        <div className="space-y-2">
-                            <h2 className="text-2xl font-semibold text-gray-900 dark:text-white">Curriculum Extractor</h2>
-                            <p className="text-gray-500 dark:text-gray-400">
-                                Paste your curriculum, topics, or Job Description below. Or upload a PDF. 
-                                I will extract the key themes and suggest a relative weightage for question generation.
-                            </p>
-                        </div>
-                    </div>
-                ) : (
-                    messages.map((message, index) => (
-                        <div 
-                            key={index} 
-                            className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
-                        >
-                            <div className={`flex max-w-[80%] ${message.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
-                                <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${
-                                    message.role === 'user' 
-                                        ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400 ml-3' 
-                                        : 'bg-purple-100 dark:bg-purple-900/40 text-purple-600 dark:text-purple-400 mr-3'
-                                }`}>
-                                    {message.role === 'user' ? <User size={16} /> : <Bot size={16} />}
-                                </div>
-                                <div className={`px-4 py-3 rounded-2xl ${
-                                    message.role === 'user' 
-                                        ? 'bg-blue-600 text-white rounded-tr-sm' 
-                                        : 'bg-white dark:bg-[#2A2A2A] text-gray-800 dark:text-gray-200 border border-gray-200 dark:border-gray-800 rounded-tl-sm shadow-sm'
-                                }`}>
-                                    {message.role === 'assistant' ? (
-                                        // A simple display for markdown formatted text
-                                        <div className="prose dark:prose-invert max-w-none prose-sm">
-                                            {message.content.split('\n').map((line, i) => (
-                                                <p key={i} className="mb-1">{line}</p>
-                                            ))}
-                                        </div>
-                                    ) : (
-                                        <div className="whitespace-pre-wrap text-sm">{message.content}</div>
-                                    )}
+        <div className="flex flex-col h-full bg-[#0a0a0a] text-[#e0e0e0] font-sans overflow-hidden md:rounded-xl">
+            <div className="flex-1 overflow-y-auto px-4 py-8 md:px-8 space-y-8 scroll-smooth hide-scrollbar">
+                <style jsx global>{`
+                    .hide-scrollbar::-webkit-scrollbar {
+                        display: none;
+                    }
+                    .hide-scrollbar {
+                        -ms-overflow-style: none;
+                        scrollbar-width: none;
+                    }
+                `}</style>
+                <div className="max-w-3xl mx-auto space-y-10 pt-4">
+                    {messages.map((message, index) => (
+                        <div key={index} className="flex gap-4 group">
+                            <div className="flex-shrink-0 mt-1">
+                                {message.role === 'user' ? (
+                                    <div className="w-8 h-8 rounded-lg bg-[#ebaa34] flex items-center justify-center overflow-hidden">
+                                        <User className="w-5 h-5 text-black/80" />
+                                    </div>
+                                ) : (
+                                    <div className="w-8 h-8 rounded-lg bg-[#27153a] flex items-center justify-center overflow-hidden">
+                                        <Bot className="w-5 h-5 text-[#8858c4]" />
+                                    </div>
+                                )}
+                            </div>
+                            <div className="flex-1 min-w-0 pt-1">
+                                <div className="text-[15px] leading-relaxed font-normal opacity-90 prose prose-invert max-w-none prose-p:mb-4 last:prose-p:mb-0 prose-a:text-blue-400 prose-table:w-full prose-table:table-auto prose-th:text-left prose-th:font-semibold prose-th:text-[#e0e0e0] prose-th:pb-3 prose-td:py-2 prose-td:text-[#b0b0b0] prose-thead:border-b-0 prose-tbody:border-0 prose-tr:border-b-0 prose-td:align-top">
+                                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                        {message.content}
+                                    </ReactMarkdown>
                                 </div>
                             </div>
                         </div>
-                    ))
-                )}
-                {isGenerating && (
-                    <div className="flex justify-start">
-                        <div className="flex flex-row max-w-[80%]">
-                            <div className="flex-shrink-0 w-8 h-8 rounded-full bg-purple-100 dark:bg-purple-900/40 text-purple-600 dark:text-purple-400 mr-3 flex items-center justify-center">
-                                <Bot size={16} />
+                    ))}
+                    {isGenerating && (
+                        <div className="flex gap-4">
+                            <div className="flex-shrink-0 mt-1">
+                                <div className="w-8 h-8 rounded-lg bg-[#27153a] flex items-center justify-center">
+                                    <Bot className="w-5 h-5 text-[#8858c4]" />
+                                </div>
                             </div>
-                            <div className="px-5 py-4 rounded-2xl bg-white dark:bg-[#2A2A2A] border border-gray-200 dark:border-gray-800 rounded-tl-sm shadow-sm flex items-center space-x-2">
-                                <div className="w-2 h-2 rounded-full bg-gray-400 animate-bounce" style={{ animationDelay: '0ms' }} />
-                                <div className="w-2 h-2 rounded-full bg-gray-400 animate-bounce" style={{ animationDelay: '150ms' }} />
-                                <div className="w-2 h-2 rounded-full bg-gray-400 animate-bounce" style={{ animationDelay: '300ms' }} />
+                            <div className="flex-1 min-w-0 pt-1 flex items-center h-8">
+                                <div className="flex gap-1.5 px-2">
+                                    <div className="w-1.5 h-1.5 bg-gray-500 rounded-full animate-bounce [animation-delay:-0.3s]" />
+                                    <div className="w-1.5 h-1.5 bg-gray-500 rounded-full animate-bounce [animation-delay:-0.15s]" />
+                                    <div className="w-1.5 h-1.5 bg-gray-500 rounded-full animate-bounce" />
+                                </div>
                             </div>
                         </div>
-                    </div>
-                )}
-                <div ref={messagesEndRef} />
+                    )}
+                    <div ref={messagesEndRef} className="h-4" />
+                </div>
             </div>
 
-            {hasAssistantResponse && (
-                <div className="px-6 pb-2 text-center">
-                    <button 
-                        onClick={handleGenerateQuestions}
-                        disabled={isGeneratingDeepQuestions}
-                        className="inline-flex items-center px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium rounded-full transition-colors cursor-pointer disabled:opacity-50"
-                    >
-                        {isGeneratingDeepQuestions ? (
-                            <>
-                                <div className="w-4 h-4 border-2 border-white rounded-full border-t-transparent animate-spin mr-2" />
-                                Generating Questions...
-                            </>
-                        ) : (
-                            <>
-                                Continue with Question Generation
-                                <ArrowRight size={16} className="ml-2" />
-                            </>
-                        )}
-                    </button>
-                </div>
-            )}
-
-            <div className="p-4 bg-white dark:bg-[#111] border-t border-gray-200 dark:border-gray-800">
-                <div className="max-w-4xl mx-auto flex items-end gap-2 bg-gray-100 dark:bg-[#1A1A1A] p-2 rounded-2xl border border-gray-200 dark:border-gray-800 focus-within:ring-2 focus-within:ring-purple-500/50">
-                    <div className="relative">
-                        <input
-                            type="file"
-                            ref={fileInputRef}
-                            onChange={handleFileChange}
-                            accept="application/pdf"
-                            className="hidden"
+            <div className="px-4 pb-6 pt-2 bg-[#0a0a0a]">
+                <div className="max-w-3xl mx-auto flex flex-col gap-2">
+                    <div className="relative bg-[#1a1a1c] rounded-xl border border-[#2e2e30] p-1 flex flex-col">
+                        <textarea
+                            ref={textareaRef}
+                            value={input}
+                            onChange={(e) => setInput(e.target.value)}
+                            onKeyDown={handleKeyDown}
+                            placeholder="Message Alice..."
+                            className="w-full bg-transparent text-white placeholder:text-[#6a6a6c] outline-none resize-none px-4 py-3 min-h-[50px] max-h-[200px] text-[15px] leading-relaxed hide-scrollbar"
+                            disabled={isGenerating}
+                            rows={1}
                         />
-                        <button
-                            onClick={triggerFileInput}
-                            disabled={isGenerating || fileExtracting}
-                            className="p-3 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 rounded-xl hover:bg-gray-200 dark:hover:bg-[#2A2A2A] transition-colors disabled:opacity-50 cursor-pointer"
-                            title="Upload PDF"
+                        
+                        <div className="flex items-center justify-between px-2 pb-2 mt-1">
+                            <div className="flex items-center">
+                                <input
+                                    type="file"
+                                    ref={fileInputRef}
+                                    onChange={handleFileChange}
+                                    accept="application/pdf"
+                                    className="hidden"
+                                />
+                                <button
+                                    onClick={() => fileInputRef.current?.click()}
+                                    disabled={isGenerating || fileExtracting}
+                                    className="p-1.5 text-[#a3a3a5] hover:text-white bg-[#2a2a2c] hover:bg-[#323234] rounded-lg transition-colors flex items-center gap-2"
+                                >
+                                    {fileExtracting ? <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                                </button>
+                            </div>
+                            <button
+                                onClick={handleSubmit}
+                                disabled={!input.trim() || isGenerating}
+                                className="p-1.5 text-[#5e5e60] disabled:text-[#3a3a3c] bg-[#1a1a1c] disabled:bg-transparent hover:bg-[#2a2a2c] hover:text-white rounded-lg transition-colors border border-transparent hover:border-[#323234] disabled:border-transparent flex items-center justify-center cursor-pointer disabled:cursor-not-allowed"
+                            >
+                                <Send className="w-4 h-4" />
+                            </button>
+                        </div>
+                    </div>
+                    
+                    
+                </div>
+                
+                {messages.length > 0 && (
+                    <div className="max-w-3xl mx-auto flex justify-center mt-6">
+                        <button 
+                            onClick={handleGenerateQuestions}
+                            disabled={isGeneratingDeepQuestions}
+                            className="text-sm bg-[#52528c] hover:bg-[#6060c2] text-white px-4 py-2 rounded-md transition-colors font-medium flex items-center gap-2"
                         >
-                            {fileExtracting ? (
-                                <div className="w-5 h-5 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
-                            ) : (
-                                <Upload size={20} />
-                            )}
+                            {isGeneratingDeepQuestions ? 'Processing...' : 'Generate Questions'}
                         </button>
                     </div>
-
-                    <textarea
-                        value={input}
-                        onChange={(e) => setInput(e.target.value)}
-                        onKeyDown={handleKeyDown}
-                        placeholder="Type curriculum or upload PDF..."
-                        className="flex-1 max-h-32 min-h-[44px] py-3 bg-transparent text-gray-900 dark:text-white placeholder-gray-500 outline-none resize-none hide-scrollbar text-sm"
-                        disabled={isGenerating}
-                        rows={1}
-                        style={{ height: 'auto' }}
-                    />
-
-                    <button
-                        onClick={handleSubmit}
-                        disabled={!input.trim() || isGenerating}
-                        className="p-3 bg-purple-600 hover:bg-purple-700 text-white rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-                    >
-                        <Send size={20} />
-                    </button>
-                </div>
+                )}
             </div>
         </div>
     );
