@@ -41,6 +41,18 @@ export function transformMilestonesToModules(milestones: Milestone[] | undefined
             scheduled_publish_at: task.scheduled_publish_at,
             isGenerating: task.is_generating
           });
+        } else if (task.type === 'assessment') {
+          moduleItems.push({
+            id: task.id.toString(),
+            title: task.title,
+            position: task.ordering,
+            type: 'assessment',
+            questions: task.questions || [], // Use questions if available or empty array
+            status: task.status,
+            numQuestions: task.num_questions,
+            scheduled_publish_at: task.scheduled_publish_at,
+            isGenerating: task.is_generating
+          });
         } else if (task.type === 'assignment') {
           moduleItems.push({
             id: task.id.toString(),

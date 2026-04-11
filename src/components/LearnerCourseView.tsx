@@ -316,7 +316,13 @@ export default function LearnerCourseView({
             if (!item) return;
 
             // Fetch item details from API
-            const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/tasks/${itemId}`);
+            const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/tasks/${itemId}`, {
+                cache: 'no-store',
+                headers: {
+                    'Cache-Control': 'no-cache',
+                    'Pragma': 'no-cache'
+                }
+            });
             if (!response.ok) {
                 throw new Error(`Failed to fetch task: ${response.status}`);
             }
@@ -330,7 +336,7 @@ export default function LearnerCourseView({
                     ...item,
                     content: data.blocks || []
                 };
-            } else if (item.type === 'quiz') {
+            } else if (item.type === 'quiz' || item.type === 'assessment') {
                 // Ensure questions have the right format for the QuizEditor component
                 const formattedQuestions = (data.questions || []).map((q: any) => {
                     // Create a properly formatted question object
@@ -388,7 +394,7 @@ export default function LearnerCourseView({
                 setIsDialogOpen(true);
 
                 // Set first question as active if it's a quiz
-                if ((item.type === 'quiz') &&
+                if ((item.type === 'quiz' || item.type === 'assessment') &&
                     item.questions && item.questions.length > 0) {
                     if (questionId && item.questions.some(q => String(q.id) === String(questionId))) {
                         setActiveQuestionId(questionId);
@@ -426,7 +432,7 @@ export default function LearnerCourseView({
         if (!activeItem || !activeModuleId) return;
 
         // If this is a quiz with questions and not on the last question, go to next question
-        if ((activeItem.type === 'quiz') &&
+        if ((activeItem.type === 'quiz' || activeItem.type === 'assessment') &&
             activeItem.questions &&
             activeItem.questions.length > 1 &&
             activeQuestionId) {
@@ -475,7 +481,7 @@ export default function LearnerCourseView({
         if (!activeItem || !activeModuleId) return;
 
         // If this is a quiz with questions and not on the first question, go to previous question
-        if ((activeItem.type === 'quiz') &&
+        if ((activeItem.type === 'quiz' || activeItem.type === 'assessment') &&
             activeItem.questions &&
             activeItem.questions.length > 1 &&
             activeQuestionId) {
@@ -667,7 +673,7 @@ export default function LearnerCourseView({
         if (!activeItem || !activeModuleId) return false;
 
         // If this is a quiz with questions, check if we're on the first question
-        if ((activeItem.type === 'quiz') &&
+        if ((activeItem.type === 'quiz' || activeItem.type === 'assessment') &&
             activeItem.questions &&
             activeItem.questions.length > 1 &&
             activeQuestionId) {
@@ -691,7 +697,7 @@ export default function LearnerCourseView({
         if (!activeItem || !activeModuleId) return false;
 
         // If this is a quiz with questions, check if we're on the last question
-        if ((activeItem.type === 'quiz') &&
+        if ((activeItem.type === 'quiz' || activeItem.type === 'assessment') &&
             activeItem.questions &&
             activeItem.questions.length > 1 &&
             activeQuestionId) {
@@ -730,7 +736,7 @@ export default function LearnerCourseView({
         if (!activeItem || !activeModuleId) return null;
 
         // If this is a quiz with questions and not on the first question, get previous question info
-        if ((activeItem.type === 'quiz') &&
+        if ((activeItem.type === 'quiz' || activeItem.type === 'assessment') &&
             activeItem.questions &&
             activeItem.questions.length > 1 &&
             activeQuestionId) {
@@ -766,7 +772,7 @@ export default function LearnerCourseView({
         if (!activeItem || !activeModuleId) return null;
 
         // If this is a quiz with questions and not on the last question, get next question info
-        if ((activeItem.type === 'quiz') &&
+        if ((activeItem.type === 'quiz' || activeItem.type === 'assessment') &&
             activeItem.questions &&
             activeItem.questions.length > 1 &&
             activeQuestionId) {
@@ -1142,7 +1148,7 @@ export default function LearnerCourseView({
                                                 </div>
                                             </div>
 
-                                            {(item.type === 'quiz') &&
+                                            {(item.type === 'quiz' || item.type === 'assessment') &&
                                                 item.id === activeItem?.id &&
                                                 activeItem?.questions &&
                                                 activeItem.questions.length > 1 && (
@@ -1296,7 +1302,7 @@ export default function LearnerCourseView({
                                                 onChatOpenChange={setIsAskDoubtOpen}
                                             />
                                         )}
-                                        {(activeItem?.type === 'quiz') && (
+                                        {(activeItem?.type === 'quiz' || activeItem?.type === 'assessment') && (
                                             <>
                                                 <DynamicLearnerQuizView
                                                     questions={activeItem.questions || []}

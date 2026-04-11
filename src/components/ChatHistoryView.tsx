@@ -56,7 +56,7 @@ const CodeMessageDisplay = ({ code, language }: { code: string, language?: strin
 
 interface ChatHistoryViewProps {
     chatHistory: ChatMessage[];
-    onViewScorecard: (scorecard: ScorecardItem[]) => void;
+    onViewScorecard: (scorecard: ScorecardItem[], competencyMap?: any[]) => void;
     isAiResponding: boolean;
     showPreparingReport: boolean;
     currentQuestionConfig?: any;
@@ -449,7 +449,7 @@ const ChatHistoryView: React.FC<ChatHistoryViewProps> = ({
                                                     {shouldShowViewReport(message) && (
                                                         <div className="my-3">
                                                             <button
-                                                                onClick={() => onViewScorecard(message.scorecard || [])}
+                                                                onClick={() => onViewScorecard(message.scorecard || [], message.competency_map || [])}
                                                                 className="bg-indigo-600 hover:bg-indigo-700 text-white dark:bg-[#333333] dark:hover:bg-[#444444] px-4 py-2 rounded-full text-xs transition-colors cursor-pointer flex items-center"
                                                                 type="button"
                                                             >

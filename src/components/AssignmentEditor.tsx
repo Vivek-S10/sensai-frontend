@@ -123,7 +123,13 @@ const AssignmentEditor = forwardRef<AssignmentEditorHandle, AssignmentEditorProp
             }
 
             try {
-                const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/tasks/${taskId}`);
+                const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/tasks/${taskId}`, {
+                    cache: 'no-store',
+                    headers: {
+                        'Cache-Control': 'no-cache',
+                        'Pragma': 'no-cache'
+                    }
+                });
                 if (!response.ok) {
                     throw new Error('Failed to fetch assignment details');
                 }

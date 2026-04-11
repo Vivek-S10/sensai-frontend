@@ -1,18 +1,20 @@
 import React, { useState } from 'react';
-import { ScorecardItem } from '../types/quiz';
+import { ScorecardItem, CompetencyMapItem } from '../types/quiz';
 
 export interface LearnerScorecardProps {
     scorecard: ScorecardItem[];
+    competency_map?: CompetencyMapItem[];
     className?: string;
 }
 
 const LearnerScorecard: React.FC<LearnerScorecardProps> = ({
     scorecard,
+    competency_map = [],
     className = "",
 }) => {
     // Initialize with all criteria expanded by default
     const [expandedIndices, setExpandedIndices] = useState<number[]>(
-        scorecard.map((_, index) => index)
+        scorecard ? scorecard.map((_, index) => index) : []
     );
 
     if (!scorecard || scorecard.length === 0) {
@@ -200,6 +202,45 @@ const LearnerScorecard: React.FC<LearnerScorecardProps> = ({
                     );
                 })}
             </div>
+
+            {/* Granular Skill Reporting (Competency Map) */}
+            {competency_map && competency_map.length > 0 && (
+                <div className="mt-8 mb-4">
+                    <h3 className="text-base font-light mb-3 px-1 text-slate-900 dark:text-white">Granular Skill Reporting</h3>
+                    <div className="grid grid-cols-1 gap-4">
+                        {competency_map.map((item, index) => {
+                            const competencyPercentage = Math.round(item.competency_score);
+                            return (
+                                <div key={`competency-${index}`} className="rounded-xl p-4 shadow-sm bg-white border border-gray-200 dark:bg-zinc-900 dark:border-transparent flex flex-col h-full">
+                                    <div className="flex justify-between items-center mb-2">
+                                        <h4 className="text-sm font-semibold text-slate-900 dark:text-white pr-2">{item.sub_topic}</h4>
+                                        <span className={`text-xs font-bold px-2 py-1 rounded-full ${competencyPercentage >= 80 ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' :
+                                            competencyPercentage >= 60 ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' :
+                                            competencyPercentage >= 40 ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' : 
+                                            'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400'}`}>
+                                            {competencyPercentage}%
+                                        </span>
+                                    </div>
+                                    
+                                    <div className="w-full h-1.5 rounded-full overflow-hidden bg-gray-200 dark:bg-zinc-800 mb-3">
+                                        <div
+                                            className={`h-full rounded-full transition-all duration-500 ${competencyPercentage >= 80 ? 'bg-emerald-500' :
+                                                competencyPercentage >= 60 ? 'bg-blue-500' :
+                                                competencyPercentage >= 40 ? 'bg-amber-500' : 'bg-rose-500'
+                                            }`}
+                                            style={{ width: `${competencyPercentage}%` }}
+                                        />
+                                    </div>
+                                    
+                                    <p className="text-xs text-gray-600 dark:text-zinc-400 mt-1 leading-relaxed">
+                                        {item.analysis}
+                                    </p>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

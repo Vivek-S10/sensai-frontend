@@ -31,6 +31,8 @@ export default function AssessmentChatInterface({ taskId, onContinueToGenerateQu
     const [isGenerating, setIsGenerating] = useState(false);
     const [isGeneratingDeepQuestions, setIsGeneratingDeepQuestions] = useState(false);
     const [fileExtracting, setFileExtracting] = useState(false);
+    const [agentStatus, setAgentStatus] = useState<string | null>(null);
+    const [agentLogs, setAgentLogs] = useState<{title: string, text: string}[]>([]);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -176,9 +178,11 @@ export default function AssessmentChatInterface({ taskId, onContinueToGenerateQu
 
     const handleGenerateQuestions = async () => {
         setIsGeneratingDeepQuestions(true);
+        setAgentStatus("Initializing Multi-Agent Pipeline...");
+        setAgentLogs([]);
         try {
             const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8001';
-            const response = await fetch(`${backendUrl}/ai/assessment/generate-questions`, {
+            const response = await fetch(`${backendUrl}/ai/assessment/generate-questions-multiagent`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -190,13 +194,56 @@ export default function AssessmentChatInterface({ taskId, onContinueToGenerateQu
             });
 
             if (!response.ok) throw new Error("Failed to generate questions");
-            const generatedQuestions = await response.json();
-            onContinueToGenerateQuestions(generatedQuestions);
+            if (!response.body) throw new Error("No response body");
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let currentBuffer = '';
+            
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) {
+                    if (currentBuffer.trim()) {
+                        try {
+                            const parsed = JSON.parse(currentBuffer);
+                            if (parsed.status) setAgentStatus(parsed.status);
+                            else if (parsed.final_output) onContinueToGenerateQuestions(parsed.final_output);
+                        } catch (e) {
+                            console.error("Failed to parse final line:", currentBuffer);
+                        }
+                    }
+                    break;
+                }
+                
+                const chunk = decoder.decode(value, { stream: true });
+                currentBuffer += chunk;
+                
+                const lines = currentBuffer.split('\n');
+                currentBuffer = lines.pop() || ''; // Keep the last incomplete line in buffer
+                
+                for (const line of lines) {
+                    if (!line.trim()) continue;
+                    try {
+                        const parsed = JSON.parse(line);
+                        if (parsed.log) {
+                            setAgentLogs(prev => [...prev, parsed.log]);
+                        } else if (parsed.status) {
+                            setAgentStatus(parsed.status);
+                        } else if (parsed.final_output) {
+                            onContinueToGenerateQuestions(parsed.final_output);
+                            return;
+                        }
+                    } catch (e) {
+                        console.error("Failed to parse ndjson line:", line);
+                    }
+                }
+            }
         } catch (error) {
             console.error("Error generating deep questions:", error);
             alert("Failed to generate questions.");
         } finally {
             setIsGeneratingDeepQuestions(false);
+            setAgentStatus(null);
         }
     };
 
@@ -299,14 +346,36 @@ export default function AssessmentChatInterface({ taskId, onContinueToGenerateQu
                     
                 </div>
                 
+                {agentLogs.length > 0 && (
+                    <div className="max-w-3xl mx-auto mt-6 bg-[#1a1a1a] rounded-xl border border-[#333] p-4 overflow-hidden">
+                        <h3 className="text-sm font-semibold text-[#ebaa34] mb-3 flex items-center gap-2">
+                            <Bot className="w-4 h-4" /> Multi-Agent Reasoning Logs
+                        </h3>
+                        <div className="space-y-4 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
+                            {agentLogs.map((log, i) => (
+                                <div key={i} className="bg-[#242424] rounded-lg p-3 border border-[#444]">
+                                    <h4 className="text-xs text-[#a0a0a0] font-medium mb-1 uppercase tracking-wider">{log.title}</h4>
+                                    <div className="text-sm text-[#d0d0d0] whitespace-pre-wrap font-mono text-[11px] leading-relaxed">
+                                        {log.text}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
                 {messages.length > 0 && (
                     <div className="max-w-3xl mx-auto flex justify-center mt-6">
                         <button 
                             onClick={handleGenerateQuestions}
                             disabled={isGeneratingDeepQuestions}
-                            className="text-sm bg-[#52528c] hover:bg-[#6060c2] text-white px-4 py-2 rounded-md transition-colors font-medium flex items-center gap-2"
+                            className="text-sm bg-[#52528c] hover:bg-[#6060c2] text-white px-4 py-2 rounded-md transition-colors font-medium flex items-center gap-2 max-w-[600px]"
                         >
-                            {isGeneratingDeepQuestions ? 'Processing...' : 'Generate Questions'}
+                            {isGeneratingDeepQuestions ? (
+                                <>
+                                    <Sparkles className="w-4 h-4 animate-spin" />
+                                    {agentStatus || 'Processing...'}
+                                </>
+                            ) : 'Generate Questions with Multi-Agent Review'}
                         </button>
                     </div>
                 )}

@@ -186,6 +186,7 @@ export default function LearnerQuizView({
 
     // New state to track which scorecard we're viewing
     const [activeScorecard, setActiveScorecard] = useState<ScorecardItem[]>([]);
+    const [activeCompetencyMap, setActiveCompetencyMap] = useState<any[]>([]);
 
     // Add state to remember chat scroll position
     const [chatScrollPosition, setChatScrollPosition] = useState(0);
@@ -429,6 +430,11 @@ export default function LearnerQuizView({
                             if (contentObj && contentObj.is_correct !== undefined) {
                                 chatMessage.is_correct = contentObj.is_correct;
                             }
+
+                            // Extract competency_map if available
+                            if (contentObj && contentObj.competency_map) {
+                                chatMessage.competency_map = contentObj.competency_map;
+                            }
                         } catch (error) {
                             // If parsing fails, assume it's the old format (plain text)
                             // Keep the original content as is - it's already set in chatMessage
@@ -664,13 +670,15 @@ export default function LearnerQuizView({
             // For report type, include both feedback and scorecard
             contentObj = {
                 feedback: aiResponse.feedback,
-                scorecard: aiResponse.scorecard || []
+                scorecard: aiResponse.scorecard || [],
+                competency_map: aiResponse.competency_map || []
             };
         } else {
             // For chat type or any other type, just include feedback
             contentObj = {
                 feedback: aiResponse.feedback,
-                is_correct: aiResponse.is_correct
+                is_correct: aiResponse.is_correct,
+                competency_map: aiResponse.competency_map || []
             };
         }
         let aiContent = JSON.stringify(contentObj);
@@ -1012,12 +1020,12 @@ export default function LearnerQuizView({
                             let accumulatedFeedback = "";
                             // Add a variable to collect the complete scorecard
                             let completeScorecard: ScorecardItem[] = [];
+                            let completeCompetencyMap: any[] = [];
                             // Add a flag to track if streaming is done
                             let streamingComplete = false;
 
                             while (true) {
                                 const { done, value } = await reader.read();
-
                                 if (done) {
                                     streamingComplete = true;
                                     break;
@@ -1103,6 +1111,11 @@ export default function LearnerQuizView({
                                             }
                                         }
 
+                                        // Handle competency component map
+                                        if (data.competency_map) {
+                                            completeCompetencyMap = data.competency_map;
+                                        }
+
                                         // Handle is_correct when available - for practice questions
                                         if (validQuestions[currentQuestionIndex]?.config?.responseType === 'chat' && data.is_correct !== undefined) {
                                             isCorrect = data.is_correct;
@@ -1141,7 +1154,8 @@ export default function LearnerQuizView({
                                         // Update the existing message with the complete scorecard
                                         currentHistory[aiMessageIndex] = {
                                             ...currentHistory[aiMessageIndex],
-                                            scorecard: completeScorecard
+                                            scorecard: completeScorecard,
+                                            competency_map: completeCompetencyMap
                                         };
                                     }
 
@@ -1157,7 +1171,7 @@ export default function LearnerQuizView({
                                 // Auto-open the scorecard when report is ready if not exam question
                                 if (completeScorecard && completeScorecard.length > 0 &&
                                     validQuestions[currentQuestionIndex]?.config?.responseType !== 'exam') {
-                                    handleViewScorecard(completeScorecard);
+                                    handleViewScorecard(completeScorecard, completeCompetencyMap);
                                 }
                             }
 
@@ -1216,7 +1230,8 @@ export default function LearnerQuizView({
                                 const aiResponse: AIResponse = {
                                     feedback: accumulatedFeedback,
                                     is_correct: isCorrect,
-                                    scorecard: completeScorecard
+                                    scorecard: completeScorecard,
+                                    competency_map: completeCompetencyMap
                                 };
                                 storeChatHistory(currentQuestionId, userMessage, aiResponse);
                             }
@@ -1437,13 +1452,14 @@ export default function LearnerQuizView({
     `;
 
     // ScoreCard view toggle functions
-    const handleViewScorecard = (scorecard: ScorecardItem[]) => {
+    const handleViewScorecard = (scorecard: ScorecardItem[], competencyMap?: any[]) => {
         // Save current chat scroll position before switching views
         if (chatContainerRef.current) {
             setChatScrollPosition(chatContainerRef.current.scrollTop);
         }
 
         setActiveScorecard(scorecard);
+        setActiveCompetencyMap(competencyMap || []);
         setIsViewingScorecard(true);
 
         // Reset scroll position of scorecard view when opened
@@ -2092,6 +2108,7 @@ export default function LearnerQuizView({
                         /* Use the ScorecardView component */
                         <ScorecardView
                             activeScorecard={activeScorecard}
+                            activeCompetencyMap={activeCompetencyMap}
                             handleBackToChat={handleBackToChat}
                             lastUserMessage={getLastUserMessage as ChatMessage | null}
                         />

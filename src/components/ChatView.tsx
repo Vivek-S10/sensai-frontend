@@ -38,7 +38,7 @@ interface ChatViewProps {
     handleInputChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => void;
     handleSubmitAnswer: (responseType?: 'text' | 'code') => void;
     handleAudioSubmit: (audioBlob: Blob) => void;
-    handleViewScorecard: (scorecard: ScorecardItem[]) => void;
+    handleViewScorecard: (scorecard: ScorecardItem[], competencyMap?: any[]) => void;
     viewOnly?: boolean;
     completedQuestionIds: Record<string, boolean>;
     currentQuestionId?: string;

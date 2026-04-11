@@ -220,9 +220,6 @@ const QuizEditor = forwardRef<QuizEditorHandle, QuizEditorProps>(({
                     setQuestions(initialQuestions);
                     setHasFetchedData(true);
                 }
-            } else {
-                // If it's a regular draft start with no questions, mark as fetched
-                setHasFetchedData(true);
             }
         }
     }, [status, initialQuestions, questions.length, hasFetchedData]);
@@ -281,7 +278,13 @@ const QuizEditor = forwardRef<QuizEditorHandle, QuizEditorProps>(({
             // Only fetch if we have a taskId, the status is published, and we haven't already fetched
             if (taskId && !hasFetchedData) {
                 try {
-                    const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/tasks/${taskId}`);
+                    const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/tasks/${taskId}`, {
+                        cache: 'no-store',
+                        headers: {
+                            'Cache-Control': 'no-cache',
+                            'Pragma': 'no-cache'
+                        }
+                    });
                     if (!response.ok) {
                         throw new Error('Failed to fetch task details');
                     }
@@ -1812,7 +1815,7 @@ const QuizEditor = forwardRef<QuizEditorHandle, QuizEditorProps>(({
     // Update the selected options based on the current question's config
     useEffect(() => {
         if (questions.length > 0 && currentQuestionIndex >= 0 && currentQuestionIndex < questions.length) {
-            const currentConfig = questions[currentQuestionIndex].config;
+            const currentConfig = questions[currentQuestionIndex]?.config || defaultQuestionConfig;
 
             // Set question type based on config
             setSelectedQuestionType(getQuestionTypeOption(currentConfig.questionType));
@@ -2003,13 +2006,13 @@ const QuizEditor = forwardRef<QuizEditorHandle, QuizEditorProps>(({
                                                                 : "text-gray-700 dark:text-gray-300"}`}
                                                             data-testid="sidebar-question-label"
                                                         >
-                                                            {question.config.title || `Question ${index + 1}`}
+                                                            {question.config?.title || `Question ${index + 1}`}
                                                         </div>
                                                         <div className={`text-xs truncate ${index === currentQuestionIndex 
                                                             ? "text-gray-600 dark:text-gray-300"
                                                             : "text-gray-500"
                                                             }`}>
-                                                            {question.config.responseType === 'chat' ? 'Practice' : 'Exam'} • {question.config.questionType === 'objective' ? 'Objective' : 'Subjective'} • {question.config.inputType}
+                                                            {question.config?.responseType === 'chat' ? 'Practice' : 'Exam'} • {question.config?.questionType === 'objective' ? 'Objective' : 'Subjective'} • {question.config?.inputType || 'text'}
                                                         </div>
                                                     </div>
                                                 </div>

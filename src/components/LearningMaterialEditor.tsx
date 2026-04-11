@@ -152,7 +152,12 @@ const LearningMaterialEditor = forwardRef<LearningMaterialEditorHandle, Learning
             const controller = new AbortController();
 
             fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/tasks/${taskId}`, {
-                signal: controller.signal
+                signal: controller.signal,
+                cache: 'no-store',
+                headers: {
+                    'Cache-Control': 'no-cache',
+                    'Pragma': 'no-cache'
+                }
             })
                 .then(response => {
                     if (!response.ok) {

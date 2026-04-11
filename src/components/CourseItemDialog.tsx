@@ -1234,7 +1234,6 @@ const CourseItemDialog: React.FC<CourseItemDialogProps> = ({
                                 onQuestionChangeWithUnsavedScorecardChanges={() => {
                                     setShowUnsavedScorecardChangesInfo(true);
                                 }}
-                                taskType={activeItem.type as any}
                             />
                             ) : activeItem?.type === 'assessment' ? (
                                 showCurriculumChat ? (
@@ -1251,6 +1250,17 @@ const CourseItemDialog: React.FC<CourseItemDialogProps> = ({
                                     />
                                 ) : (
                                     <DynamicQuizEditor
+                                        initialQuestions={activeItem.questions}
+                                        onChange={(questions) => {
+                                            setHasQuizQuestions(questions.length > 0);
+                                            if (activeItem) {
+                                                activeItem.questions = questions;
+                                            }
+                                            if (onQuizContentChange) {
+                                                onQuizContentChange(questions);
+                                            }
+                                        }}
+                                        taskType={activeItem.type as any}
                                         ref={quizEditorRef}
                                         key={`assessment-${activeItem.id}-${isEditMode}`}
                                         scheduledPublishAt={scheduledDate ? scheduledDate.toISOString() : null}
@@ -1264,6 +1274,14 @@ const CourseItemDialog: React.FC<CourseItemDialogProps> = ({
                                         onPublishConfirm={onPublishConfirm}
                                         isEditMode={isEditMode}
                                         isPreviewMode={previewMode}
+                                        onValidationError={(message, description) => {
+                                            displayToast(message, description, "🚫");
+                                        }}
+                                        courseId={courseId}
+                                        schoolId={schoolId}
+                                        onQuestionChangeWithUnsavedScorecardChanges={() => {
+                                            setShowUnsavedScorecardChangesInfo(true);
+                                        }}
                                         onSaveSuccess={(updatedData) => {
                                             // Handle save success
                                             if (updatedData) {

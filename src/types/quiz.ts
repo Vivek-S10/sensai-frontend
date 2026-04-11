@@ -110,6 +110,13 @@ export interface APIQuestionResponse {
 }
 
 
+// Define competency map item structure
+export interface CompetencyMapItem {
+    sub_topic: string;
+    competency_score: number;
+    analysis: string;
+}
+
 // Define a message type for the chat history
 export interface ChatMessage {
     id: string;
@@ -119,6 +126,7 @@ export interface ChatMessage {
     messageType?: 'text' | 'audio' | 'code' | 'file';
     audioData?: string; // base64 encoded audio data
     scorecard?: ScorecardItem[]; // Add scorecard field for detailed feedback
+    competency_map?: CompetencyMapItem[]; // Granular skill reporting
     isError?: boolean;
     is_correct?: boolean; // Add is_correct attribute for exam responses
     fileUuid?: string; // UUID for file messages
@@ -142,4 +150,5 @@ export interface AIResponse {
     feedback: string;
     is_correct: boolean;
     scorecard?: ScorecardItem[];
+    competency_map?: CompetencyMapItem[];
 }

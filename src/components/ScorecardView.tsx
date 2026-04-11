@@ -5,12 +5,14 @@ import LearnerScorecard from './LearnerScorecard';
 
 interface ScorecardViewProps {
     activeScorecard: ScorecardItem[];
+    activeCompetencyMap?: any[];
     handleBackToChat: () => void;
     lastUserMessage: ChatMessage | null;
 }
 
 const ScorecardView: React.FC<ScorecardViewProps> = ({
     activeScorecard,
+    activeCompetencyMap,
     handleBackToChat,
     lastUserMessage,
 }) => {
@@ -74,7 +76,7 @@ const ScorecardView: React.FC<ScorecardViewProps> = ({
                     </div>
                 </div>
 
-                <LearnerScorecard scorecard={activeScorecard} className="mt-0" />
+                <LearnerScorecard scorecard={activeScorecard} competency_map={activeCompetencyMap} className="mt-0" />
             </div>
         </div>
     );
