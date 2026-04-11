@@ -43,6 +43,8 @@ interface LearnerCourseViewProps {
     taskId?: string | null;
     questionId?: string | null;
     onUpdateTaskAndQuestionIdInUrl?: (taskId: string | null, questionId: string | null) => void;
+    schoolId?: string;
+    cohortId?: string;
 }
 
 export default function LearnerCourseView({
@@ -60,6 +62,8 @@ export default function LearnerCourseView({
     taskId = null,
     questionId = null,
     onUpdateTaskAndQuestionIdInUrl = () => { },
+    schoolId,
+    cohortId,
 }: LearnerCourseViewProps) {
     // Get user from auth context
     const { user } = useAuth();
@@ -532,7 +536,8 @@ export default function LearnerCourseView({
         }));
 
         // Check if all questions in the current quiz are now completed
-        if (activeItem?.type === 'quiz') {
+        if (activeItem?.type === 'quiz' || activeItem?.type === 'assessment') {
+            const isAssessmentTask = activeItem.type === 'assessment';
             const allQuestions = activeItem.questions || [];
 
             // Also update the nested completedQuestionIds structure to match our UI display
@@ -558,8 +563,12 @@ export default function LearnerCourseView({
                 onQuestionComplete(activeItem.id, questionId, true);
             }
 
-            // If this is a single question quiz, mark the entire task as complete
+            // If this is a single question quiz/assessment, mark the entire task as complete
             if (allQuestions.length <= 1) {
+                if (isAssessmentTask) {
+                    triggerConfetti(false);
+                    return;
+                }
                 const newCompletedTasks = {
                     ...completedTasks,
                     [activeItem.id]: true
@@ -578,15 +587,19 @@ export default function LearnerCourseView({
                     triggerModuleCompletionCelebration();
                 } else {
                     // Standard celebration for task completion
-                    triggerConfetti(true); // Full celebration for single question quiz completion
+                    triggerConfetti(true); // Full celebration for single question completion
                 }
             } else {
-                // For multi-question quiz, check if all questions are now completed
+                // For multi-question quiz/assessment, check if all questions are now completed
                 const areAllQuestionsCompleted = allQuestions.every(
                     (q: any) => completedQuestions[q.id] || String(q.id) === String(questionId)
                 );
 
                 if (areAllQuestionsCompleted) {
+                    if (isAssessmentTask) {
+                        triggerConfetti(false);
+                        return;
+                    }
                     const newCompletedTasks = {
                         ...completedTasks,
                         [activeItem.id]: true
@@ -604,8 +617,7 @@ export default function LearnerCourseView({
                         // This completes the module - trigger the enhanced celebration
                         triggerModuleCompletionCelebration();
                     } else {
-                        // Standard celebration for task completion
-                        triggerConfetti(true); // Full celebration for completing entire quiz
+                        triggerConfetti(true); // Full celebration for completing entire assessment/quiz
                     }
                 } else {
                     // Trigger light confetti for individual question completion
@@ -614,6 +626,27 @@ export default function LearnerCourseView({
             }
         }
     }, [activeItem, activeModuleId, completedTasks, completedQuestions, onTaskComplete, onQuestionComplete]);
+
+    const handleAssessmentSubmit = useCallback(() => {
+        if (!activeItem || activeItem.type !== 'assessment') return;
+
+        const newCompletedTasks = {
+            ...completedTasks,
+            [activeItem.id]: true
+        };
+
+        setCompletedTasks(newCompletedTasks);
+
+        if (onTaskComplete) {
+            onTaskComplete(activeItem.id, true);
+        }
+
+        if (activeModuleId && checkModuleCompletion(activeModuleId, newCompletedTasks)) {
+            triggerModuleCompletionCelebration();
+        } else {
+            triggerConfetti(true);
+        }
+    }, [activeItem, completedTasks, onTaskComplete, activeModuleId]);
 
     // Function to mark task as completed
     const markTaskComplete = async () => {
@@ -1317,6 +1350,10 @@ export default function LearnerCourseView({
                                                     onAiRespondingChange={handleAiRespondingChange}
                                                     className={`${isSidebarOpen ? 'sidebar-visible' : ''}`}
                                                     isAdminView={isAdminView}
+                                                    isAssessment={activeItem?.type === 'assessment'}
+                                                    onAssessmentSubmit={handleAssessmentSubmit}
+                                                    cohortId={cohortId}
+                                                    schoolId={schoolId}
                                                 />
                                             </>
                                         )}

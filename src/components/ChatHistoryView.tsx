@@ -240,10 +240,10 @@ const ChatHistoryView: React.FC<ChatHistoryViewProps> = ({
         // Check if message is from AI and has scorecard data
         return (
             message.sender === 'ai' &&
-            message.scorecard &&
-            message.scorecard.length > 0 &&
-            // Check if the current question is configured for report responses
-            currentQuestionConfig?.questionType === 'subjective'
+            (
+                (message.scorecard && message.scorecard.length > 0) ||
+                (message.competency_map && message.competency_map.length > 0)
+            )
         );
     };
 

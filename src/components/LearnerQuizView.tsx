@@ -2,7 +2,7 @@
 
 import "@blocknote/core/fonts/inter.css";
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
-import { ChevronLeft, ChevronRight, MoreVertical, Maximize2, Minimize2, MessageCircle, X, Columns, LayoutGrid, SplitSquareVertical, CheckCircle, Eye, EyeOff } from "lucide-react";
+import { ChevronLeft, ChevronRight, MoreVertical, Maximize2, Minimize2, MessageCircle, X, Columns, LayoutGrid, SplitSquareVertical, CheckCircle, Eye, EyeOff, Trophy } from "lucide-react";
 import BlockNoteEditor from "./BlockNoteEditor";
 import { QuizQuestion, ChatMessage, ScorecardItem, AIResponse, QuizQuestionConfig } from "../types/quiz";
 import ChatView, { CodeViewState, ChatViewHandle } from './ChatView';
@@ -42,6 +42,10 @@ export interface LearnerQuizViewProps {
     onAiRespondingChange?: (isResponding: boolean) => void;
     onMobileViewChange?: (mode: MobileViewMode) => void;
     isAdminView?: boolean;
+    isAssessment?: boolean;
+    onAssessmentSubmit?: () => void;
+    cohortId?: string;
+    schoolId?: string;
 }
 
 export default function LearnerQuizView({
@@ -58,6 +62,10 @@ export default function LearnerQuizView({
     onAiRespondingChange,
     onMobileViewChange,
     isAdminView = false,
+    isAssessment = false,
+    onAssessmentSubmit,
+    cohortId,
+    schoolId,
 }: LearnerQuizViewProps) {
     const { user } = useAuth();
     // Use global theme (html.dark) as the source of truth to avoid reload-required mismatches.
@@ -180,6 +188,12 @@ export default function LearnerQuizView({
 
     // State to track if we should show the preparing report button
     const [showPreparingReport, setShowPreparingReport] = useState(false);
+    const [isAssessmentSubmitted, setIsAssessmentSubmitted] = useState(false);
+    const [isViewingAssessmentReport, setIsViewingAssessmentReport] = useState(false);
+    const [submittedAssessmentReport, setSubmittedAssessmentReport] = useState<any | null>(null);
+    const [assessmentLeaderboard, setAssessmentLeaderboard] = useState<any[]>([]);
+    const [isLoadingAssessmentLeaderboard, setIsLoadingAssessmentLeaderboard] = useState(false);
+    const [assessmentLeaderboardError, setAssessmentLeaderboardError] = useState<string | null>(null);
 
     // New state to track if we're viewing a scorecard
     const [isViewingScorecard, setIsViewingScorecard] = useState(false);
@@ -1116,8 +1130,8 @@ export default function LearnerQuizView({
                                             completeCompetencyMap = data.competency_map;
                                         }
 
-                                        // Handle is_correct when available - for practice questions
-                                        if (validQuestions[currentQuestionIndex]?.config?.responseType === 'chat' && data.is_correct !== undefined) {
+                                        // Handle is_correct when available
+                                        if (data.is_correct !== undefined) {
                                             isCorrect = data.is_correct;
                                         }
                                     } catch (e) {
@@ -1485,6 +1499,136 @@ export default function LearnerQuizView({
             }
         }, 0);
     };
+
+    const allAssessmentQuestionsAnswered = useMemo(() => {
+        if (!isAssessment || validQuestions.length === 0) return false;
+        return validQuestions.every((q) => completedQuestionIds[q.id]);
+    }, [isAssessment, validQuestions, completedQuestionIds]);
+
+    const localAssessmentReport = useMemo(() => {
+        if (!isAssessment) return null;
+
+        let objectiveTotal = 0;
+        let objectiveCorrect = 0;
+        let rubricScore = 0;
+        let rubricMax = 0;
+        const moduleBreakdown: Array<{
+            questionId: string;
+            module: string;
+            feedback: string;
+            score: number | null;
+            maxScore: number | null;
+        }> = [];
+        const skillMap = new Map<string, { total: number; count: number; notes: string[] }>();
+
+        validQuestions.forEach((question, index) => {
+            const history = chatHistories[question.id] || [];
+            const aiMessages = history.filter((m) => m.sender === 'ai' && !m.isError);
+            const latest = aiMessages.length > 0 ? aiMessages[aiMessages.length - 1] : null;
+            if (!latest) return;
+
+            const moduleName = question.config?.title || `Question ${index + 1}`;
+            const scorecard = latest.scorecard || [];
+            const competencyMap = latest.competency_map || [];
+
+            if (latest.is_correct !== undefined) {
+                objectiveTotal += 1;
+                if (latest.is_correct) objectiveCorrect += 1;
+            }
+
+            if (scorecard.length > 0) {
+                const qScore = scorecard.reduce((sum, row) => sum + (row.score || 0), 0);
+                const qMax = scorecard.reduce((sum, row) => sum + (row.max_score || 0), 0);
+                rubricScore += qScore;
+                rubricMax += qMax;
+                moduleBreakdown.push({
+                    questionId: question.id,
+                    module: moduleName,
+                    feedback: latest.content,
+                    score: qScore,
+                    maxScore: qMax,
+                });
+            } else {
+                moduleBreakdown.push({
+                    questionId: question.id,
+                    module: moduleName,
+                    feedback: latest.content,
+                    score: latest.is_correct ? 1 : 0,
+                    maxScore: 1,
+                });
+            }
+
+            competencyMap.forEach((item: any) => {
+                const key = String(item.sub_topic || "General");
+                const prev = skillMap.get(key) || { total: 0, count: 0, notes: [] };
+                prev.total += Number(item.competency_score || 0);
+                prev.count += 1;
+                if (item.analysis) prev.notes.push(String(item.analysis));
+                skillMap.set(key, prev);
+            });
+        });
+
+        const skills = Array.from(skillMap.entries())
+            .map(([subTopic, value]) => ({
+                subTopic,
+                avgScore: value.count > 0 ? Math.round((value.total / value.count) * 10) / 10 : 0,
+                note: value.notes[0] || "",
+            }))
+            .sort((a, b) => b.avgScore - a.avgScore);
+
+        return {
+            attempted: validQuestions.filter((q) => completedQuestionIds[q.id]).length,
+            totalQuestions: validQuestions.length,
+            objectiveCorrect,
+            objectiveTotal,
+            rubricScore,
+            rubricMax,
+            skills,
+            modules: moduleBreakdown,
+        };
+    }, [isAssessment, validQuestions, chatHistories, completedQuestionIds]);
+
+    const assessmentReport = submittedAssessmentReport || localAssessmentReport;
+
+    const handleSubmitAssessment = useCallback(async () => {
+        if (!allAssessmentQuestionsAnswered || isAssessmentSubmitted) return;
+        if (!userId || !taskId) return;
+
+        setIsLoadingAssessmentLeaderboard(true);
+        setAssessmentLeaderboardError(null);
+        try {
+            const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/ai/assessment/submit`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    user_id: parseInt(userId),
+                    task_id: parseInt(taskId),
+                    cohort_id: cohortId ? parseInt(cohortId) : null,
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error(`Failed to submit assessment: ${response.status}`);
+            }
+
+            const data = await response.json();
+            if (data?.report) {
+                setSubmittedAssessmentReport(data.report);
+            }
+            setAssessmentLeaderboard(Array.isArray(data?.leaderboard) ? data.leaderboard : []);
+            setIsAssessmentSubmitted(true);
+            setIsViewingAssessmentReport(true);
+            if (onAssessmentSubmit) onAssessmentSubmit();
+        } catch (error) {
+            console.error("Failed to submit assessment:", error);
+            setAssessmentLeaderboardError("Unable to submit assessment right now.");
+            setIsAssessmentSubmitted(false);
+        } finally {
+            setIsLoadingAssessmentLeaderboard(false);
+        }
+    }, [allAssessmentQuestionsAnswered, isAssessmentSubmitted, onAssessmentSubmit, userId, taskId, cohortId]);
 
     // Function to handle retrying the last user message
     const handleRetry = useCallback(() => {
@@ -2062,6 +2206,24 @@ export default function LearnerQuizView({
                         </div>
                     )}
 
+                    {isAssessment && !viewOnly && !isAdminView && (
+                        <div className="mb-4 flex items-center justify-between rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#141414] px-3 py-2">
+                            <div className="text-xs text-gray-600 dark:text-gray-300">
+                                {allAssessmentQuestionsAnswered
+                                    ? "All questions answered. Submit to generate your assessment report."
+                                    : "Answer all questions to enable assessment submission."}
+                            </div>
+                            <button
+                                className="px-3 py-1.5 text-xs rounded-full bg-indigo-600 text-white disabled:opacity-50 disabled:cursor-not-allowed hover:bg-indigo-700"
+                                onClick={handleSubmitAssessment}
+                                disabled={!allAssessmentQuestionsAnswered || isAssessmentSubmitted || isLoadingAssessmentLeaderboard}
+                                type="button"
+                            >
+                                {isAssessmentSubmitted ? "Submitted" : (isLoadingAssessmentLeaderboard ? "Submitting..." : "Submit Assessment")}
+                            </button>
+                        </div>
+                    )}
+
                     <div className={`flex-1 ${questions.length > 1 ? 'mt-4' : ''}`}>
                         {/* Use editor with negative margin to offset unwanted space */}
                         <div
@@ -2104,7 +2266,118 @@ export default function LearnerQuizView({
 
                 {/* Middle column - Chat/Code View */}
                 <div className="flex flex-col h-full overflow-auto lg:border-l lg:border-t-0 sm:border-t sm:border-l-0 chat-container bg-white border border-gray-200 dark:bg-[#111111] dark:border-[#222222]">
-                    {isViewingScorecard ? (
+                    {isAssessment && isViewingAssessmentReport && assessmentReport ? (
+                        <div className="h-full overflow-y-auto px-6 py-6">
+                            <div className="mb-6">
+                                <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Assessment Report</h2>
+                                <p className="text-sm text-gray-600 dark:text-gray-300 mt-1">
+                                    Attempted {assessmentReport.attempted}/{assessmentReport.totalQuestions} questions
+                                </p>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
+                                <div className="rounded-lg border border-gray-200 dark:border-[#2a2a2a] p-3">
+                                    <div className="text-xs text-gray-500">Objective Accuracy</div>
+                                    <div className="text-lg font-semibold text-gray-900 dark:text-white">
+                                        {assessmentReport.objectiveTotal > 0
+                                            ? `${assessmentReport.objectiveCorrect}/${assessmentReport.objectiveTotal}`
+                                            : "N/A"}
+                                    </div>
+                                </div>
+                                <div className="rounded-lg border border-gray-200 dark:border-[#2a2a2a] p-3">
+                                    <div className="text-xs text-gray-500">Rubric Score</div>
+                                    <div className="text-lg font-semibold text-gray-900 dark:text-white">
+                                        {assessmentReport.rubricMax > 0
+                                            ? `${assessmentReport.rubricScore.toFixed(1)}/${assessmentReport.rubricMax.toFixed(1)}`
+                                            : "N/A"}
+                                    </div>
+                                </div>
+                                <div className="rounded-lg border border-gray-200 dark:border-[#2a2a2a] p-3">
+                                    <div className="text-xs text-gray-500">Skill Areas</div>
+                                    <div className="text-lg font-semibold text-gray-900 dark:text-white">
+                                        {assessmentReport.skills.length}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="mb-6">
+                                <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200 mb-2">Skill Breakdown</h3>
+                                {assessmentReport.skills.length === 0 ? (
+                                    <p className="text-sm text-gray-500">Skill map is not available yet.</p>
+                                ) : (
+                                    <div className="space-y-2">
+                                        {assessmentReport.skills.map((skill) => (
+                                            <div key={skill.subTopic} className="rounded-lg border border-gray-200 dark:border-[#2a2a2a] p-3">
+                                                <div className="flex items-center justify-between">
+                                                    <div className="text-sm font-medium text-gray-900 dark:text-white">{skill.subTopic}</div>
+                                                    <div className="text-sm text-indigo-600 dark:text-indigo-400">{skill.avgScore}/100</div>
+                                                </div>
+                                                {skill.note && (
+                                                    <p className="text-xs text-gray-600 dark:text-gray-300 mt-1">{skill.note}</p>
+                                                )}
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="mb-6">
+                                <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200 mb-2">Module Report</h3>
+                                <div className="space-y-2">
+                                    {assessmentReport.modules.map((module) => (
+                                        <div key={module.questionId} className="rounded-lg border border-gray-200 dark:border-[#2a2a2a] p-3">
+                                            <div className="flex items-center justify-between">
+                                                <div className="text-sm font-medium text-gray-900 dark:text-white">{module.module}</div>
+                                                <div className="text-xs text-gray-600 dark:text-gray-300">
+                                                    {module.score !== null && module.maxScore !== null ? `${module.score}/${module.maxScore}` : "N/A"}
+                                                </div>
+                                            </div>
+                                            <p className="text-xs text-gray-600 dark:text-gray-300 mt-1">{module.feedback}</p>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {cohortId && (
+                                <div className="mb-4">
+                                    <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200 mb-2 flex items-center gap-2">
+                                        <Trophy size={16} />
+                                        Cohort Leaderboard
+                                    </h3>
+                                    {isLoadingAssessmentLeaderboard ? (
+                                        <p className="text-sm text-gray-500">Loading leaderboard...</p>
+                                    ) : assessmentLeaderboardError ? (
+                                        <p className="text-sm text-red-500">{assessmentLeaderboardError}</p>
+                                    ) : assessmentLeaderboard.length === 0 ? (
+                                        <p className="text-sm text-gray-500">No leaderboard data available yet.</p>
+                                    ) : (
+                                        <div className="rounded-lg border border-gray-200 dark:border-[#2a2a2a] overflow-hidden">
+                                            {assessmentLeaderboard.slice(0, 5).map((entry, idx) => (
+                                                <div key={`${entry?.user?.id}-${idx}`} className="px-3 py-2 flex items-center justify-between border-b border-gray-100 dark:border-[#1f1f1f] last:border-b-0">
+                                                    <div className="text-sm text-gray-900 dark:text-white">
+                                                        {idx + 1}. {entry?.user?.first_name || entry?.user?.email || "Learner"}
+                                                    </div>
+                                                    <div className="text-xs text-gray-600 dark:text-gray-300">
+                                                        {entry?.total_score !== undefined && entry?.max_score !== undefined
+                                                            ? `${entry.total_score}/${entry.max_score} (${entry?.percentage ?? 0}%)`
+                                                            : `${entry?.tasks_completed ?? 0} tasks`}
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                    {schoolId && (
+                                        <a
+                                            href={`/school/${schoolId}/cohort/${cohortId}/leaderboard`}
+                                            className="inline-block mt-3 text-xs text-indigo-600 dark:text-indigo-400 hover:underline"
+                                        >
+                                            View full leaderboard
+                                        </a>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    ) : isViewingScorecard ? (
                         /* Use the ScorecardView component */
                         <ScorecardView
                             activeScorecard={activeScorecard}
